@@ -320,7 +320,7 @@ export default function App() {
     fetchProducts();
   }
 
-  function sendWhatsApp() {
+  async function sendWhatsApp() {
     if (cart.length < 6) {
       alert("Pedido mínimo: 6 piezas.");
       return;
@@ -333,13 +333,19 @@ export default function App() {
     if (!customerWhatsapp) return;
 
     const whatsappNumbers = ["524779177633", "524821357950"];
-    const savedIndex = Number(localStorage.getItem("whatsappIndex") || 0);
-    const selectedNumber = whatsappNumbers[savedIndex];
 
-    localStorage.setItem(
-      "whatsappIndex",
-      String((savedIndex + 1) % whatsappNumbers.length)
-    );
+const { data: nextIndex, error: rotationError } = await supabase.rpc(
+  "get_next_whatsapp_index",
+  { total_numbers: whatsappNumbers.length }
+);
+
+if (rotationError) {
+  alert("Error asignando asesor. Intenta de nuevo.");
+  console.log(rotationError);
+  return;
+}
+
+const selectedNumber = whatsappNumbers[nextIndex];
 
     const productsText = cart
       .map(
