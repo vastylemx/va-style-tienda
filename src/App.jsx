@@ -12,7 +12,7 @@ const categories = [
   "Muñequera",
   "Línea económica",
   "Hombre",
-  "Tenis",
+  "Calzado",
 ];
 
 const PRODUCTS_PER_PAGE = 20;
@@ -35,6 +35,19 @@ function getCleanPrice(value) {
 
   const numberValue = parseFloat(cleanValue);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function getSizeOptions(value) {
+  if (!value) return [];
+
+  return String(value)
+    .split(/[,.\n]+/)
+    .map((size) => size.trim())
+    .filter(Boolean);
+}
+
+function normalizeCategory(value) {
+  return value === "Tenis" ? "Calzado" : value;
 }
 
 function compressImage(file, maxWidth = 1200, quality = 0.78) {
@@ -142,12 +155,15 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState(null);
   const [toast, setToast] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortOrder, setSortOrder] = useState("az");
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedSizes, setSelectedSizes] = useState({});
   const [adminModal, setAdminModal] = useState(null);
   const [bulkUpload, setBulkUpload] = useState({
     baseName: "",
     brand: "",
     category: "Bolsas",
+    sizes: "",
     precio_mayorista: "",
     files: [],
     uploading: false,
@@ -158,6 +174,7 @@ export default function App() {
   const [imageZoom, setImageZoom] = useState(1);
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
 
+  const catalogRef = useRef(null);
   const aboutRef = useRef(null);
   const contactRef = useRef(null);
   const lastTapRef = useRef(0);
@@ -170,6 +187,7 @@ export default function App() {
     name: "",
     brand: "",
     category: "Bolsas",
+    sizes: "",
     precio_mayorista: "",
     imageFile: null,
     image_url: "",
@@ -209,8 +227,10 @@ export default function App() {
       data.map((p) => ({
         id: p.id,
         name: p.name,
-        brand: p.brand || "",
-        category: p.category,
+        brand: (p.brand || "").toUpperCase(),
+        category: normalizeCategory(p.category),
+        sizes: p.sizes || "",
+        created_at: p.created_at,
         price: Number(p.wholesale_price) || 0,
         image: p.image_url,
       }))
@@ -231,10 +251,21 @@ export default function App() {
     return matchesCategory && matchesSearch;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PRODUCTS_PER_PAGE));
+  const sortedProducts = [...filtered].sort((a, b) => {
+    if (sortOrder === "recent") {
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    }
+
+    return String(a.name || "").localeCompare(String(b.name || ""), "es", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / PRODUCTS_PER_PAGE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
-  const paginatedProducts = filtered.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
+  const paginatedProducts = sortedProducts.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
 
   const total = cart
     .map((item) => getCleanPrice(item.price))
@@ -247,10 +278,26 @@ export default function App() {
   }
 
   function addToCart(product) {
+    const sizeOptions = getSizeOptions(product.sizes);
+    const selectedSize = product.category === "Calzado" ? selectedSizes[product.id] : "";
+
+    if (product.category === "Calzado") {
+      if (!sizeOptions.length) {
+        alert("Este calzado todavía no tiene tallas registradas.");
+        return;
+      }
+
+      if (!selectedSize) {
+        alert("Selecciona la talla antes de agregar al carrito.");
+        return;
+      }
+    }
+
     setCart((prevCart) => [
       ...prevCart,
       {
         ...product,
+        selectedSize,
         price: getCleanPrice(product.price),
       },
     ]);
@@ -360,6 +407,7 @@ export default function App() {
       name: "",
       brand: "",
       category: "Bolsas",
+      sizes: "",
       precio_mayorista: "",
       imageFile: null,
       image_url: "",
@@ -374,6 +422,7 @@ export default function App() {
       name: product.name,
       brand: product.brand || "",
       category: product.category,
+      sizes: product.sizes || "",
       precio_mayorista: product.price,
       imageFile: null,
       image_url: product.image,
@@ -387,6 +436,7 @@ export default function App() {
       baseName: "",
       brand: "",
       category: "Bolsas",
+      sizes: "",
       precio_mayorista: "",
       files: [],
       uploading: false,
@@ -457,8 +507,9 @@ export default function App() {
         .from("products")
         .update({
           name: newProduct.name.trim().toUpperCase(),
-          brand: newProduct.brand.trim(),
+          brand: newProduct.brand.trim().toUpperCase(),
           category: newProduct.category,
+          sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         })
@@ -469,8 +520,9 @@ export default function App() {
       const result = await supabase.from("products").insert([
         {
           name: newProduct.name.trim().toUpperCase(),
-          brand: newProduct.brand.trim(),
+          brand: newProduct.brand.trim().toUpperCase(),
           category: newProduct.category,
+          sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         },
@@ -491,6 +543,7 @@ export default function App() {
       name: "",
       brand: "",
       category: "Bolsas",
+      sizes: "",
       precio_mayorista: "",
       imageFile: null,
       image_url: "",
@@ -503,7 +556,8 @@ export default function App() {
 
   async function saveBulkProducts() {
     const baseName = bulkUpload.baseName.trim().toUpperCase();
-    const brand = bulkUpload.brand.trim();
+    const brand = bulkUpload.brand.trim().toUpperCase();
+    const sizes = bulkUpload.category === "Calzado" ? bulkUpload.sizes.trim().toUpperCase() : "";
     const price = getCleanPrice(bulkUpload.precio_mayorista);
     const files = Array.from(bulkUpload.files || []);
 
@@ -566,6 +620,7 @@ export default function App() {
           name: productName,
           brand,
           category: bulkUpload.category,
+          sizes,
           wholesale_price: price,
           image_url: publicUrl,
         },
@@ -584,6 +639,7 @@ export default function App() {
       baseName: "",
       brand: "",
       category: "Bolsas",
+      sizes: "",
       precio_mayorista: "",
       files: [],
       uploading: false,
@@ -644,7 +700,7 @@ export default function App() {
     const productsText = cart
       .map(
         (item, index) =>
-          `${index + 1}. ${item.name}${item.brand ? ` / Marca: ${item.brand}` : ""} - $${getCleanPrice(item.price).toLocaleString("es-MX")} MXN`
+          `${index + 1}. ${item.name}${item.brand ? ` / ${item.brand}` : ""}${item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""} - $${getCleanPrice(item.price).toLocaleString("es-MX")} MXN`
       )
       .join("\n");
 
@@ -678,6 +734,15 @@ Gracias
     } else {
       window.location.assign(webUrl);
     }
+  }
+
+  function scrollToCatalog() {
+    setTimeout(() => {
+      catalogRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
   }
 
   function openLink(url) {
@@ -836,6 +901,44 @@ Gracias
           white-space: nowrap;
         }
 
+        .sort-select {
+          background: transparent;
+          border: 1px solid #eadbd3;
+          color: #7a5c50;
+          border-radius: 999px;
+          padding: 8px 10px;
+          font-size: 12px;
+          font-weight: 800;
+          outline: none;
+          opacity: .78;
+        }
+
+        .size-select {
+          width: 100%;
+          background: #fffaf7;
+          border: 1px solid #eadbd3;
+          color: #7a4050;
+          border-radius: 8px;
+          padding: 7px 8px;
+          font-size: 12px;
+          font-weight: 800;
+          margin-bottom: 5px;
+          outline: none;
+        }
+
+        .shipping-note {
+          background: #fff4ea;
+          border: 2px solid #c94462;
+          border-radius: 12px;
+          padding: 11px 12px;
+          color: #7a4050;
+          font-size: 13px;
+          font-weight: 900;
+          line-height: 1.35;
+          margin: 12px 0;
+          text-align: center;
+        }
+
         .filter {
           background: white;
           border: 1px solid #eadad2;
@@ -867,41 +970,47 @@ Gracias
         .card img {
           width: 100%;
           height: 185px;
-          object-fit: cover;
+          object-fit: contain;
+          background: #fffaf7;
           display: block;
           cursor: zoom-in;
           -webkit-touch-callout: default;
         }
 
         .card-body {
-          padding: 10px 13px 13px;
+          padding: 7px 10px 9px;
         }
 
         .card-body h3 {
-          margin: 0 0 5px;
-          font-size: 15px;
-          line-height: 1.2;
+          margin: 0 0 2px;
+          font-size: 14px;
+          line-height: 1.15;
         }
 
         .brand {
           color: #7a5c50;
-          font-size: 13px;
-          font-weight: 800;
-          margin-bottom: 6px;
+          font-size: 12px;
+          font-weight: 900;
+          margin: 0 0 3px;
+          letter-spacing: .3px;
+          line-height: 1.1;
         }
 
         .price {
           color: #c94462;
-          font-weight: 800;
-          margin-bottom: 9px;
+          font-weight: 900;
+          margin-bottom: 6px;
+          font-size: 14px;
         }
 
         .add {
           width: 100%;
           background: #c94462;
           color: white;
-          padding: 12px;
+          padding: 8px 10px;
           border-radius: 6px;
+          font-size: 13px;
+          line-height: 1.1;
         }
 
         .pagination {
@@ -1429,6 +1538,22 @@ Gracias
             font-size: 12px;
           }
 
+          .sort-select {
+            align-self: center;
+            font-size: 11px;
+            padding: 7px 9px;
+          }
+
+          .size-select {
+            font-size: 11px;
+            padding: 6px 7px;
+          }
+
+          .shipping-note {
+            font-size: 12px;
+            padding: 10px;
+          }
+
           .filter {
             padding: 8px 10px;
             font-size: 12px;
@@ -1449,21 +1574,30 @@ Gracias
           }
 
           .card-body {
-            padding: 7px 8px 9px;
+            padding: 5px 7px 7px;
           }
 
           .card-body h3 {
-            font-size: 13px;
-            margin: 0 0 3px;
-            line-height: 1.15;
+            font-size: 12.5px;
+            margin: 0 0 2px;
+            line-height: 1.12;
+          }
+
+          .brand {
+            font-size: 11px;
+            margin-bottom: 2px;
           }
 
           .price {
-            font-size: 13px;
-            margin-bottom: 6px;
+            font-size: 12.5px;
+            margin-bottom: 4px;
           }
 
-          .add,
+          .add {
+            font-size: 11.5px;
+            padding: 7px 8px;
+          }
+
           .pink-btn,
           .delete-btn {
             font-size: 12px;
@@ -1653,15 +1787,19 @@ Gracias
       )}
 
       <main className="main">
-        <section>
+        <section ref={catalogRef}>
           <div className="filters">
             {categories.map((cat) => (
               <button
                 key={cat}
                 className={category === cat ? "filter active" : "filter"}
-                onClick={() => setCategory(cat)}
+                onClick={() => {
+                  setCategory(cat);
+                  setCurrentPage(1);
+                  scrollToCatalog();
+                }}
               >
-                {cat === "Todas" ? "🎁 Todas" : cat === "Tenis" ? "👟 Tenis" : cat === "Hombre" ? "🧔 Hombre" : `👜 ${cat}`}
+                {cat === "Todas" ? "🎁 Todas" : cat === "Calzado" ? "👟 Calzado" : cat === "Hombre" ? "🧔 Hombre" : `👜 ${cat}`}
               </button>
             ))}
           </div>
@@ -1671,11 +1809,28 @@ Gracias
               className="search-input"
               placeholder="🔎 Buscar por código, modelo, marca o categoría"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+                scrollToCatalog();
+              }}
             />
             <div className="results-count">
               {filtered.length} producto{filtered.length === 1 ? "" : "s"}
             </div>
+
+            <select
+              className="sort-select"
+              value={sortOrder}
+              onChange={(e) => {
+                setSortOrder(e.target.value);
+                setCurrentPage(1);
+                scrollToCatalog();
+              }}
+            >
+              <option value="az">Orden: A-Z</option>
+              <option value="recent">Subidos recientemente</option>
+            </select>
           </div>
 
           {filtered.length === 0 ? (
@@ -1695,11 +1850,29 @@ Gracias
 
                 <div className="card-body">
                   <h3>{p.name}</h3>
-                  {p.brand && <div className="brand">Marca: {p.brand}</div>}
+                  {p.brand && <div className="brand">{p.brand}</div>}
                   <div className="price">${(Number(p.price) || 0).toLocaleString("es-MX")} MXN</div>
 
+                  {p.category === "Calzado" && (
+                    <select
+                      className="size-select"
+                      value={selectedSizes[p.id] || ""}
+                      onChange={(e) =>
+                        setSelectedSizes((prev) => ({
+                          ...prev,
+                          [p.id]: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Talla</option>
+                      {getSizeOptions(p.sizes).map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
+                    </select>
+                  )}
+
                   <button className="add" onClick={() => addToCart(p)}>
-                    🛒 Agregar al carrito
+                    Agregar 🛒
                   </button>
 
                   {showAdmin && (
@@ -1736,7 +1909,10 @@ Gracias
                   <button
                     className="page-btn"
                     disabled={safeCurrentPage === 1}
-                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    onClick={() => {
+                      setCurrentPage((page) => Math.max(1, page - 1));
+                      scrollToCatalog();
+                    }}
                   >
                     ← Anterior
                   </button>
@@ -1748,7 +1924,10 @@ Gracias
                   <button
                     className="page-btn"
                     disabled={safeCurrentPage === totalPages}
-                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    onClick={() => {
+                      setCurrentPage((page) => Math.min(totalPages, page + 1));
+                      scrollToCatalog();
+                    }}
                   >
                     Siguiente →
                   </button>
@@ -1784,13 +1963,17 @@ Gracias
                 <>
                   {cart.map((item, index) => (
                     <div key={index} className="cart-item">
-                      {item.name}{item.brand ? ` / Marca: ${item.brand}` : ""} — ${getCleanPrice(item.price).toLocaleString("es-MX")} MXN
+                      {item.name}{item.brand ? ` / ${item.brand}` : ""}{item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""} — ${getCleanPrice(item.price).toLocaleString("es-MX")} MXN
                     </div>
                   ))}
 
                   <div className="cart-total">
                     TOTAL DEL PEDIDO<br />
                     ${Number(total || 0).toLocaleString("es-MX")} MXN
+                  </div>
+
+                  <div className="shipping-note">
+                    📦 El envío se calcula según destino y cantidad de piezas al confirmar tu pedido.
                   </div>
 
                   {cart.length < 6 && (
@@ -1952,12 +2135,12 @@ Gracias
             />
 
             <input
-              placeholder="Marca. Ej: Michael Kors, Coach, Nike"
+              placeholder="Marca. Ej: MICHAEL KORS, COACH, NIKE"
               value={newProduct.brand}
               onChange={(e) =>
                 setNewProduct({
                   ...newProduct,
-                  brand: e.target.value,
+                  brand: e.target.value.toUpperCase(),
                 })
               }
             />
@@ -1974,8 +2157,18 @@ Gracias
               <option value="Muñequera">Muñequera</option>
               <option value="Línea económica">Línea económica</option>
               <option value="Hombre">Hombre</option>
-              <option value="Tenis">Tenis</option>
+              <option value="Calzado">Calzado</option>
             </select>
+
+            {newProduct.category === "Calzado" && (
+              <input
+                placeholder="Tallas disponibles. Ej: 22, 23, 24, 25, 26"
+                value={newProduct.sizes}
+                onChange={(e) =>
+                  setNewProduct({ ...newProduct, sizes: e.target.value.toUpperCase() })
+                }
+              />
+            )}
 
             <input
               placeholder="Precio mayorista"
@@ -2018,10 +2211,10 @@ Gracias
             />
 
             <input
-              placeholder="Marca para este modelo. Ej: Michael Kors"
+              placeholder="Marca para este modelo. Ej: MICHAEL KORS"
               value={bulkUpload.brand}
               disabled={bulkUpload.uploading}
-              onChange={(e) => setBulkUpload({ ...bulkUpload, brand: e.target.value })}
+              onChange={(e) => setBulkUpload({ ...bulkUpload, brand: e.target.value.toUpperCase() })}
             />
 
             <select
@@ -2037,8 +2230,17 @@ Gracias
               <option value="Muñequera">Muñequera</option>
               <option value="Línea económica">Línea económica</option>
               <option value="Hombre">Hombre</option>
-              <option value="Tenis">Tenis</option>
+              <option value="Calzado">Calzado</option>
             </select>
+
+            {bulkUpload.category === "Calzado" && (
+              <input
+                placeholder="Tallas disponibles para este modelo. Ej: 22, 23, 24, 25, 26"
+                value={bulkUpload.sizes}
+                disabled={bulkUpload.uploading}
+                onChange={(e) => setBulkUpload({ ...bulkUpload, sizes: e.target.value.toUpperCase() })}
+              />
+            )}
 
             <input
               placeholder="Precio mayorista general"
