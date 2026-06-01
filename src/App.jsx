@@ -83,6 +83,16 @@ function compressImage(file, maxWidth = 1200, quality = 0.78) {
   });
 }
 
+
+function createProductNameFromFile(fileName) {
+  return String(fileName || "PRODUCTO")
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
 function WhatsAppIcon() {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -148,6 +158,14 @@ export default function App() {
     precio_mayorista: "",
     imageFile: null,
     image_url: "",
+  });
+
+  const [bulkUpload, setBulkUpload] = useState({
+    category: "Bolsas",
+    precio_mayorista: "",
+    files: [],
+    uploading: false,
+    progress: "",
   });
 
   useEffect(() => {
@@ -410,6 +428,90 @@ export default function App() {
     });
 
     setEditingProduct(null);
+    fetchProducts();
+  }
+
+  async function bulkUploadProducts() {
+    if (!bulkUpload.files.length) {
+      alert("Selecciona varias imágenes para subir.");
+      return;
+    }
+
+    if (!bulkUpload.precio_mayorista) {
+      alert("Escribe un precio general para estos productos.");
+      return;
+    }
+
+    const confirmUpload = confirm(
+      `¿Subir ${bulkUpload.files.length} productos a la categoría ${bulkUpload.category}?`
+    );
+
+    if (!confirmUpload) return;
+
+    setBulkUpload((prev) => ({
+      ...prev,
+      uploading: true,
+      progress: `Preparando 0 de ${prev.files.length}`,
+    }));
+
+    let successCount = 0;
+
+    for (let i = 0; i < bulkUpload.files.length; i++) {
+      const originalFile = bulkUpload.files[i];
+
+      setBulkUpload((prev) => ({
+        ...prev,
+        progress: `Comprimiendo y subiendo ${i + 1} de ${bulkUpload.files.length}`,
+      }));
+
+      const file = await compressImage(originalFile);
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+      const fileName = `${Date.now()}-${i}-${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("product-images")
+        .upload(fileName, file, {
+          contentType: file.type || "image/jpeg",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.log(uploadError);
+        alert(`Error subiendo ${originalFile.name}: ${uploadError.message}`);
+        continue;
+      }
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("product-images").getPublicUrl(fileName);
+
+      const { error: insertError } = await supabase.from("products").insert([
+        {
+          name: createProductNameFromFile(originalFile.name),
+          category: bulkUpload.category,
+          wholesale_price: getCleanPrice(bulkUpload.precio_mayorista),
+          image_url: publicUrl,
+        },
+      ]);
+
+      if (insertError) {
+        console.log(insertError);
+        alert(`Error guardando ${originalFile.name}: ${insertError.message}`);
+        continue;
+      }
+
+      successCount++;
+    }
+
+    setBulkUpload({
+      category: "Bolsas",
+      precio_mayorista: "",
+      files: [],
+      uploading: false,
+      progress: "",
+    });
+
+    alert(`Carga masiva terminada. Productos subidos: ${successCount}`);
     fetchProducts();
   }
 
@@ -758,6 +860,38 @@ Gracias
           border: 1px solid #eadbd3;
           margin: 12px 0;
           font-size: 15px;
+        }
+
+        .bulk-admin {
+          margin-top: 18px;
+          padding-top: 18px;
+          border-top: 1px solid #eadbd3;
+        }
+
+        .bulk-admin h4 {
+          margin: 0 0 8px;
+          color: #7a4050;
+          font-size: 16px;
+        }
+
+        .bulk-help {
+          margin: 0 0 10px;
+          color: #6f625f;
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1.4;
+        }
+
+        .bulk-progress {
+          margin-top: 10px;
+          background: #fff4ea;
+          border: 1px solid #eadbd3;
+          border-radius: 10px;
+          padding: 10px;
+          color: #9b4f5d;
+          font-weight: 900;
+          font-size: 13px;
+          text-align: center;
         }
 
         .info-section {
@@ -1370,6 +1504,70 @@ Gracias
               <button className="pink-btn" style={{ width: "100%" }} onClick={saveProduct}>
                 {editingProduct ? "Guardar cambios" : "Guardar producto"}
               </button>
+
+              <div className="bulk-admin">
+                <h4>📦 Carga masiva de productos</h4>
+                <p className="bulk-help">
+                  Selecciona una categoría, un precio general y varias imágenes.
+                  Se creará un producto por cada foto.
+                </p>
+
+                <select
+                  value={bulkUpload.category}
+                  disabled={bulkUpload.uploading}
+                  onChange={(e) =>
+                    setBulkUpload({ ...bulkUpload, category: e.target.value })
+                  }
+                >
+                  <option value="Bolsas">Bolsas</option>
+                  <option value="Carteras">Carteras</option>
+                  <option value="Mochilas">Mochilas</option>
+                  <option value="Crossbody">Crossbody</option>
+                  <option value="Maleta">Maleta</option>
+                  <option value="Muñequera">Muñequera</option>
+                  <option value="Línea económica">Línea económica</option>
+                </select>
+
+                <input
+                  placeholder="Precio general mayorista"
+                  value={bulkUpload.precio_mayorista}
+                  disabled={bulkUpload.uploading}
+                  onChange={(e) =>
+                    setBulkUpload({
+                      ...bulkUpload,
+                      precio_mayorista: e.target.value,
+                    })
+                  }
+                />
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={bulkUpload.uploading}
+                  onChange={(e) =>
+                    setBulkUpload({
+                      ...bulkUpload,
+                      files: Array.from(e.target.files || []),
+                    })
+                  }
+                />
+
+                <button
+                  className="pink-btn"
+                  style={{ width: "100%" }}
+                  disabled={bulkUpload.uploading}
+                  onClick={bulkUploadProducts}
+                >
+                  {bulkUpload.uploading
+                    ? "Subiendo productos..."
+                    : `Subir ${bulkUpload.files.length || ""} productos`}
+                </button>
+
+                {bulkUpload.progress && (
+                  <div className="bulk-progress">{bulkUpload.progress}</div>
+                )}
+              </div>
             </div>
           )}
         </aside>
