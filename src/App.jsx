@@ -13,12 +13,122 @@ const categories = [
   "Línea económica",
 ];
 
+const BETA_MODE = true;
+const BETA_WHATSAPP_NUMBER = "524776311393";
+const ADVISOR_NUMBERS = ["524779177633", "524821357950"];
+
+const CART_STORAGE_KEY = "vaStyleCart";
+const ORDER_SENT_KEY = "vaStyleOrderSent";
+const LAST_ADVISOR_KEY = "vaStyleLastAdvisor";
+
+function getCleanPrice(value) {
+  if (value === null || value === undefined) return 0;
+
+  const cleanValue = String(value)
+    .replace(/[^0-9.,-]/g, "")
+    .replace(/,/g, "");
+
+  const numberValue = parseFloat(cleanValue);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function compressImage(file, maxWidth = 1200, quality = 0.78) {
+  return new Promise((resolve) => {
+    if (!file || !file.type?.startsWith("image/")) {
+      resolve(file);
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const img = new Image();
+
+      img.onload = () => {
+        const scale = Math.min(maxWidth / img.width, 1);
+        const canvas = document.createElement("canvas");
+
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+
+            const compressedFile = new File(
+              [blob],
+              file.name.replace(/\.[^/.]+$/, "") + ".jpg",
+              { type: "image/jpeg", lastModified: Date.now() }
+            );
+
+            resolve(compressedFile);
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+
+      img.onerror = () => resolve(file);
+      img.src = event.target.result;
+    };
+
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+}
+
+function WhatsAppIcon() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 3C8.8 3 3 8.6 3 15.5c0 2.4.7 4.7 2 6.7L3.8 29l7-1.8c1.6.8 3.4 1.2 5.2 1.2 7.2 0 13-5.6 13-12.5S23.2 3 16 3Zm0 22.9c-1.7 0-3.3-.4-4.7-1.2l-.4-.2-4.1 1.1.8-4-.3-.4c-1.1-1.7-1.7-3.6-1.7-5.6 0-5.6 4.7-10.1 10.4-10.1s10.4 4.5 10.4 10.1S21.7 25.9 16 25.9Zm5.7-7.6c-.3-.2-1.9-.9-2.2-1-.3-.1-.5-.2-.8.2-.2.3-.9 1-.1.2-.2.2-.4.3-.7.1-2-.9-3.3-2.1-4.1-4-.1-.3 0-.5.1-.7.1-.1.3-.4.5-.5.2-.2.2-.3.3-.5.1-.2.1-.4 0-.6-.1-.2-.8-1.8-1.1-2.4-.3-.6-.5-.5-.8-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1.2 1.1-1.2 2.7s1.2 3.1 1.3 3.3c.2.2 2.3 3.6 5.7 5 .8.3 1.5.5 2 .7.8.2 1.6.2 2.2.1.7-.1 1.9-.8 2.2-1.5.3-.7.3-1.4.2-1.5-.1-.2-.3-.3-.6-.4Z" />
+    </svg>
+  );
+}
+
+function FacebookIcon() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M18.2 29V17.7h3.8l.6-4.4h-4.4v-2.8c0-1.3.4-2.1 2.2-2.1h2.3V4.5c-.4-.1-1.8-.2-3.4-.2-3.4 0-5.7 2.1-5.7 5.8v3.2H9.8v4.4h3.8V29h4.6Z" />
+    </svg>
+  );
+}
+
+function InstagramIcon() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 8.2c2.5 0 2.8 0 3.8.1.9 0 1.4.2 1.8.3.5.2.8.4 1.1.7.3.3.5.7.7 1.1.1.3.3.9.3 1.8.1 1 .1 1.3.1 3.8s0 2.8-.1 3.8c0 .9-.2 1.4-.3 1.8-.2.5-.4.8-.7 1.1-.3.3-.7.5-1.1.7-.3.1-.9.3-1.8.3-1 .1-1.3.1-3.8.1s-2.8 0-3.8-.1c-.9 0-1.4-.2-1.8-.3-.5-.2-.8-.4-1.1-.7-.3-.3-.5-.7-.7-1.1-.1-.3-.3-.9-.3-1.8-.1-1-.1-1.3-.1-3.8s0-2.8.1-3.8c0-.9.2-1.4.3-1.8.2-.5.4-.8.7-1.1.3-.3.7-.5 1.1-.7.3-.1.9-.3 1.8-.3 1-.1 1.3-.1 3.8-.1Zm0-2.7c-2.5 0-2.9 0-3.9.1-1 0-1.8.2-2.4.5-.7.3-1.3.6-1.8 1.2-.6.6-.9 1.1-1.2 1.8-.2.6-.4 1.4-.5 2.4 0 1-.1 1.3-.1 3.9s0 2.9.1 3.9c0 1 .2 1.8.5 2.4.3.7.6 1.3 1.2 1.8.6.6 1.1.9 1.8 1.2.6.2 1.4.4 2.4.5 1 .1 1.3.1 3.9.1s2.9 0 3.9-.1c1 0 1.8-.2 2.4-.5.7-.3 1.3-.6 1.8-1.2.6-.6.9-1.1 1.2-1.8.2-.6.4-1.4.5-2.4.1-1 .1-1.3.1-3.9s0-2.9-.1-3.9c0-1-.2-1.8-.5-2.4-.3-.7-.6-1.3-1.2-1.8-.6-.6-1.1-.9-1.8-1.2-.6-.2-1.4-.4-2.4-.5-1-.1-1.3-.1-3.9-.1Zm0 4.8a5.7 5.7 0 1 0 0 11.4 5.7 5.7 0 0 0 0-11.4Zm0 9.4a3.7 3.7 0 1 1 0-7.4 3.7 3.7 0 0 1 0 7.4Zm5.9-9.6a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6Z" />
+    </svg>
+  );
+}
+
+function TikTokIcon() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M22.7 9.7c-1.6-.9-2.7-2.4-3-4.2h-4.2v15c0 2-1.6 3.6-3.6 3.6s-3.6-1.6-3.6-3.6 1.6-3.6 3.6-3.6c.4 0 .8.1 1.2.2v-4.2c-.4-.1-.8-.1-1.2-.1-4.3 0-7.8 3.5-7.8 7.8s3.5 7.8 7.8 7.8 7.8-3.5 7.8-7.8v-7.9c1.7 1.2 3.8 1.9 6 1.9V10c-1.1 0-2.1-.1-3-.3Z" />
+    </svg>
+  );
+}
+
 export default function App() {
   const [products, setProducts] = useState([]);
   const [category, setCategory] = useState("Bolsas");
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => {
+    try {
+      if (typeof window === "undefined") return [];
+      return JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [showAdmin, setShowAdmin] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [toast, setToast] = useState("");
 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [imageZoom, setImageZoom] = useState(1);
@@ -28,7 +138,7 @@ export default function App() {
   const contactRef = useRef(null);
   const lastTapRef = useRef(0);
   const dragRef = useRef(null);
-  const pinchRef = useRef(null);
+  const toastTimerRef = useRef(null);
 
   const ADMIN_PASSWORD = "vanda2025";
 
@@ -45,8 +155,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+  }, [cart]);
+
+  useEffect(() => {
     return () => {
       document.body.style.overflow = "auto";
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
 
@@ -77,16 +192,26 @@ export default function App() {
       ? products
       : products.filter((p) => p.category === category);
 
-  const total = cart.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+  const total = cart
+    .map((item) => getCleanPrice(item.price))
+    .reduce((sum, price) => sum + price, 0);
+
+  function showToast(message) {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(""), 1800);
+  }
 
   function addToCart(product) {
     setCart((prevCart) => [
       ...prevCart,
       {
         ...product,
-        price: Number(product.price) || 0,
+        price: getCleanPrice(product.price),
       },
     ]);
+
+    showToast("Producto agregado al carrito ✅");
   }
 
   function openImage(product) {
@@ -105,75 +230,40 @@ export default function App() {
 
   function toggleZoom() {
     if (imageZoom === 1) {
-      setImageZoom(2.5);
+      setImageZoom(2.4);
     } else {
       setImageZoom(1);
       setImagePosition({ x: 0, y: 0 });
     }
   }
 
-  function getDistance(touch1, touch2) {
-    const x = touch1.clientX - touch2.clientX;
-    const y = touch1.clientY - touch2.clientY;
-    return Math.sqrt(x * x + y * y);
-  }
-
   function handleTouchStart(e) {
-    if (e.touches.length === 2) {
-      pinchRef.current = {
-        distance: getDistance(e.touches[0], e.touches[1]),
-        zoom: imageZoom,
-      };
-    }
+    if (e.touches.length !== 1) return;
 
-    if (e.touches.length === 1) {
-      dragRef.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY,
-        startX: imagePosition.x,
-        startY: imagePosition.y,
-      };
-    }
+    dragRef.current = {
+      moved: false,
+      startTime: Date.now(),
+    };
   }
 
   function handleTouchMove(e) {
-    if (e.touches.length === 2 && pinchRef.current) {
-      e.preventDefault();
+    if (!dragRef.current) return;
 
-      const newDistance = getDistance(e.touches[0], e.touches[1]);
-      const scale = newDistance / pinchRef.current.distance;
-      const nextZoom = Math.min(Math.max(pinchRef.current.zoom * scale, 1), 4);
-
-      setImageZoom(nextZoom);
-
-      if (nextZoom === 1) {
-        setImagePosition({ x: 0, y: 0 });
-      }
-    }
-
-    if (e.touches.length === 1 && dragRef.current && imageZoom > 1) {
-      e.preventDefault();
-
-      const deltaX = e.touches[0].clientX - dragRef.current.x;
-      const deltaY = e.touches[0].clientY - dragRef.current.y;
-
-      setImagePosition({
-        x: dragRef.current.startX + deltaX,
-        y: dragRef.current.startY + deltaY,
-      });
-    }
+    dragRef.current.moved = true;
   }
 
   function handleTouchEnd() {
     const now = Date.now();
+    const wasDragging = dragRef.current?.moved;
 
-    if (now - lastTapRef.current < 280) {
+    if (!wasDragging && now - lastTapRef.current < 320) {
       toggleZoom();
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
     }
 
-    lastTapRef.current = now;
     dragRef.current = null;
-    pinchRef.current = null;
   }
 
   function handleMouseDown(e) {
@@ -253,12 +343,15 @@ export default function App() {
     }
 
     if (newProduct.imageFile) {
-      const file = newProduct.imageFile;
+      const file = await compressImage(newProduct.imageFile);
       const fileName = `${Date.now()}-${file.name}`;
 
       const { error: uploadError } = await supabase.storage
         .from("product-images")
-        .upload(fileName, file);
+        .upload(fileName, file, {
+          contentType: file.type || "image/jpeg",
+          upsert: false,
+        });
 
       if (uploadError) {
         alert(uploadError.message);
@@ -281,7 +374,7 @@ export default function App() {
         .update({
           name: newProduct.name.trim().toUpperCase(),
           category: newProduct.category,
-          wholesale_price: Number(newProduct.precio_mayorista),
+          wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         })
         .eq("id", editingProduct.id);
@@ -292,7 +385,7 @@ export default function App() {
         {
           name: newProduct.name.trim().toUpperCase(),
           category: newProduct.category,
-          wholesale_price: Number(newProduct.precio_mayorista),
+          wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         },
       ]);
@@ -320,6 +413,34 @@ export default function App() {
     fetchProducts();
   }
 
+  async function getSelectedWhatsAppNumber() {
+    if (BETA_MODE) {
+      localStorage.setItem(LAST_ADVISOR_KEY, BETA_WHATSAPP_NUMBER);
+      return BETA_WHATSAPP_NUMBER;
+    }
+
+    const savedAdvisor = localStorage.getItem(LAST_ADVISOR_KEY);
+
+    if (savedAdvisor) {
+      return savedAdvisor;
+    }
+
+    const { data: nextIndex, error: rotationError } = await supabase.rpc(
+      "get_next_whatsapp_index",
+      { total_numbers: ADVISOR_NUMBERS.length }
+    );
+
+    if (rotationError) {
+      console.log(rotationError);
+      throw new Error("Error asignando asesor. Intenta de nuevo.");
+    }
+
+    const selectedNumber = ADVISOR_NUMBERS[nextIndex];
+    localStorage.setItem(LAST_ADVISOR_KEY, selectedNumber);
+
+    return selectedNumber;
+  }
+
   async function sendWhatsApp() {
     if (cart.length < 6) {
       alert("Pedido mínimo: 6 piezas.");
@@ -327,67 +448,60 @@ export default function App() {
     }
 
     const customerName = prompt("Nombre del cliente:");
-    if (!customerName) return;
+    if (!customerName || !customerName.trim()) return;
 
-    const customerWhatsapp = prompt("WhatsApp del cliente:");
-    if (!customerWhatsapp) return;
+    let selectedNumber;
 
-    const whatsappNumbers = ["524779177633", "524821357950"];
+    try {
+      selectedNumber = await getSelectedWhatsAppNumber();
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
 
-const { data: nextIndex, error: rotationError } = await supabase.rpc(
-  "get_next_whatsapp_index",
-  { total_numbers: whatsappNumbers.length }
-);
-
-if (rotationError) {
-  alert("Error asignando asesor. Intenta de nuevo.");
-  console.log(rotationError);
-  return;
-}
-
-const selectedNumber = whatsappNumbers[nextIndex];
+    const isAdditionalOrder = localStorage.getItem(ORDER_SENT_KEY) === "true";
 
     const productsText = cart
       .map(
         (item, index) =>
-          `${index + 1}. ${item.name} - $${(Number(item.price) || 0).toLocaleString()} MXN`
+          `${index + 1}. ${item.name} - $${getCleanPrice(item.price).toLocaleString("es-MX")} MXN`
       )
       .join("\n");
 
     const message = `
 Hola, quiero hacer este pedido en V & A Style
 
-DATOS DEL CLIENTE
-Nombre: ${customerName}
-WhatsApp: ${customerWhatsapp}
+${isAdditionalOrder ? "AGREGADO A PEDIDO ANTERIOR\n" : ""}DATOS DEL CLIENTE
+Nombre: ${customerName.trim()}
 
 PEDIDO
 ${productsText}
 
-TOTAL: $${total.toLocaleString()} MXN
+TOTAL: $${total.toLocaleString("es-MX")} MXN
 
 Gracias
 `;
 
+    localStorage.setItem(ORDER_SENT_KEY, "true");
+
     const encodedMessage = encodeURIComponent(message);
     const appUrl = `whatsapp://send?phone=${selectedNumber}&text=${encodedMessage}`;
     const webUrl = `https://wa.me/${selectedNumber}?text=${encodedMessage}`;
-
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
     if (isMobile) {
-      window.location.href = appUrl;
+      window.location.assign(appUrl);
 
       setTimeout(() => {
-        window.location.href = webUrl;
+        window.location.assign(webUrl);
       }, 1200);
     } else {
-      window.open(webUrl, "_blank");
+      window.location.assign(webUrl);
     }
   }
 
   function openLink(url) {
-    window.open(url, "_blank");
+    window.location.assign(url);
   }
 
   return (
@@ -435,8 +549,8 @@ Gracias
         }
 
         .menu span:first-child {
-          color: #d66176;
-          border-bottom: 3px solid #d66176;
+          color: #c94462;
+          border-bottom: 3px solid #c94462;
           padding-bottom: 12px;
         }
 
@@ -459,7 +573,7 @@ Gracias
         }
 
         .pink-btn {
-          background: #d76578;
+          background: #c94462;
           color: white;
         }
 
@@ -471,32 +585,35 @@ Gracias
 
         .hero {
           text-align: center;
-          padding: 18px 14px 12px;
-          background: linear-gradient(90deg,#fff4ea,#ffe2dd,#fff3e8);
+          padding: 24px 14px 18px;
+          background: radial-gradient(circle at top, #fff7ef 0%, #ffe0dc 45%, #fff3e8 100%);
           border-bottom: 1px solid #f1d7cb;
         }
 
         .hero h1 {
           font-family: Georgia, serif;
-          font-size: 42px;
-          font-weight: 400;
+          font-size: 48px;
+          font-weight: 700;
           margin: 0;
-          color: #7a4050;
+          color: #a72f4d;
+          letter-spacing: .2px;
+          text-shadow: 0 8px 22px rgba(167,47,77,.16);
         }
 
         .hero p {
-          margin: 10px auto 0;
-          max-width: 700px;
-          font-size: 17px;
-          line-height: 1.5;
-          color: #6b5550;
+          margin: 11px auto 0;
+          max-width: 760px;
+          font-size: 20px;
+          line-height: 1.45;
+          color: #6b403e;
+          font-weight: 800;
         }
 
         .main {
           display: grid;
           grid-template-columns: 1fr 330px;
           gap: 34px;
-          padding: 24px 38px 80px;
+          padding: 24px 38px 92px;
         }
 
         .filters {
@@ -516,7 +633,7 @@ Gracias
         }
 
         .filter.active {
-          background: #d76578;
+          background: #c94462;
           color: white;
         }
 
@@ -540,6 +657,7 @@ Gracias
           object-fit: cover;
           display: block;
           cursor: zoom-in;
+          -webkit-touch-callout: default;
         }
 
         .card-body {
@@ -553,14 +671,14 @@ Gracias
         }
 
         .price {
-          color: #d76578;
+          color: #c94462;
           font-weight: 800;
           margin-bottom: 9px;
         }
 
         .add {
           width: 100%;
-          background: #d76578;
+          background: #c94462;
           color: white;
           padding: 12px;
           border-radius: 6px;
@@ -604,10 +722,27 @@ Gracias
           font-size: 14px;
         }
 
+        .cart-total {
+          margin: 14px 0 12px;
+          padding: 14px 12px;
+          background: #fff4ea;
+          border: 1px solid #eadbd3;
+          border-radius: 12px;
+          color: #7a4050;
+          font-size: 20px;
+          font-weight: 900;
+          text-align: center;
+          box-shadow: 0 6px 16px rgba(90,50,30,.08);
+        }
+
         .minimum-order {
-          font-size: 13px;
-          color: #9b6a5f;
-          font-weight: 700;
+          background: #fff4ea;
+          border: 1px solid #eadbd3;
+          border-radius: 10px;
+          padding: 10px;
+          font-size: 14px;
+          color: #9b4f5d;
+          font-weight: 900;
           margin-top: 8px;
         }
 
@@ -626,7 +761,7 @@ Gracias
         }
 
         .info-section {
-          margin: 0 38px 80px;
+          margin: 0 38px 92px;
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 24px;
@@ -670,19 +805,44 @@ Gracias
         }
 
         .contact-btn {
-          background: #d76578;
+          background: #c94462;
           color: white;
           padding: 13px 14px;
           border-radius: 999px;
           text-align: center;
           font-weight: 800;
           box-shadow: 0 6px 16px rgba(120,70,60,.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
         }
 
-        .social-btn {
-          background: #fff4ea;
-          color: #7a4050;
-          border: 1px solid #eadbd3;
+        .contact-btn svg {
+          width: 20px;
+          height: 20px;
+          fill: currentColor;
+          flex: 0 0 auto;
+        }
+
+        .whatsapp-btn {
+          background: #25D366;
+          color: white;
+        }
+
+        .facebook-btn {
+          background: #1877F2;
+          color: white;
+        }
+
+        .instagram-btn {
+          background: linear-gradient(135deg,#f58529,#dd2a7b,#8134af,#515bd4);
+          color: white;
+        }
+
+        .tiktok-btn {
+          background: #111111;
+          color: white;
         }
 
         .footer {
@@ -692,12 +852,16 @@ Gracias
           right: 0;
           background: #f4e1cd;
           display: flex;
-          justify-content: space-around;
-          padding: 7px 8px;
-          color: #7a5c50;
-          font-size: 11px;
+          justify-content: center;
+          align-items: center;
+          padding: 10px 14px;
+          color: #7a4050;
+          font-size: 15px;
+          font-weight: 900;
+          text-align: center;
           border-top: 1px solid #e7cdb7;
           z-index: 50;
+          box-shadow: 0 -8px 22px rgba(80,40,30,.07);
         }
 
         .admin-secret {
@@ -725,6 +889,22 @@ Gracias
           display: none;
         }
 
+        .toast {
+          position: fixed;
+          left: 50%;
+          bottom: 76px;
+          transform: translateX(-50%);
+          background: #2f2927;
+          color: white;
+          padding: 12px 18px;
+          border-radius: 999px;
+          font-size: 14px;
+          font-weight: 900;
+          box-shadow: 0 10px 28px rgba(0,0,0,.22);
+          z-index: 3000;
+          white-space: nowrap;
+        }
+
         .image-modal {
           position: fixed;
           inset: 0;
@@ -744,7 +924,7 @@ Gracias
           align-items: center;
           justify-content: center;
           overflow: hidden;
-          touch-action: none;
+          touch-action: manipulation;
           cursor: grab;
         }
 
@@ -754,9 +934,10 @@ Gracias
           object-fit: contain;
           user-select: none;
           -webkit-user-select: none;
-          touch-action: none;
+          touch-action: manipulation;
           transition: transform .12s ease-out;
           cursor: zoom-in;
+          -webkit-touch-callout: default;
         }
 
         .image-modal-title {
@@ -785,19 +966,6 @@ Gracias
           font-weight: 900;
           z-index: 2100;
           box-shadow: 0 8px 22px rgba(0,0,0,.25);
-        }
-
-        .zoom-hint {
-          position: fixed;
-          top: 18px;
-          left: 18px;
-          color: rgba(255,255,255,.88);
-          font-size: 12px;
-          font-weight: 700;
-          background: rgba(0,0,0,.35);
-          padding: 8px 11px;
-          border-radius: 999px;
-          z-index: 2100;
         }
 
         @media (max-width: 768px) {
@@ -846,24 +1014,24 @@ Gracias
           }
 
           .hero {
-            padding: 10px 10px 9px;
+            padding: 15px 10px 13px;
           }
 
           .hero h1 {
-            font-size: 24px;
-            line-height: 1.1;
+            font-size: 30px;
+            line-height: 1.05;
           }
 
           .hero p {
-            font-size: 13px;
+            font-size: 15px;
             line-height: 1.3;
-            margin-top: 5px;
+            margin-top: 8px;
           }
 
           .main {
             display: flex;
             flex-direction: column;
-            padding: 11px 10px 84px;
+            padding: 11px 10px 90px;
             gap: 16px;
           }
 
@@ -932,12 +1100,17 @@ Gracias
             padding: 16px 12px;
           }
 
+          .cart-total {
+            font-size: 18px;
+            padding: 13px 10px;
+          }
+
           .admin-box {
             padding: 13px;
           }
 
           .info-section {
-            margin: 0 10px 78px;
+            margin: 0 10px 88px;
             grid-template-columns: 1fr;
             gap: 14px;
           }
@@ -963,21 +1136,19 @@ Gracias
           }
 
           .footer {
-            font-size: 9px;
-            gap: 4px;
-            flex-wrap: wrap;
-            padding: 4px 4px;
+            font-size: 13px;
+            padding: 9px 12px;
           }
 
           .floating-cart {
             display: flex;
             position: fixed;
             right: 16px;
-            bottom: 42px;
-            width: 58px;
-            height: 58px;
+            bottom: 52px;
+            width: 62px;
+            height: 62px;
             border-radius: 999px;
-            background: #d76578;
+            background: #c94462;
             color: white;
             align-items: center;
             justify-content: center;
@@ -996,13 +1167,10 @@ Gracias
             max-width: 98vw;
             max-height: 82vh;
           }
-
-          .zoom-hint {
-            font-size: 11px;
-            max-width: 210px;
-          }
         }
       `}</style>
+
+      {toast && <div className="toast">{toast}</div>}
 
       <header className="navbar">
         <div className="logo-wrap">
@@ -1031,14 +1199,22 @@ Gracias
         </nav>
 
         <div className="nav-actions">
-          <button className="cart-btn top-cart">🛒 Carrito ({cart.length})</button>
+          <button
+            className="cart-btn top-cart"
+            onClick={() =>
+              document.querySelector(".side")?.scrollIntoView({
+                behavior: "smooth",
+              })
+            }
+          >
+            🛒 Carrito ({cart.length})
+          </button>
         </div>
       </header>
 
       <section className="hero">
-        <h1>Bienvenida a V & A Style ✨</h1>
-        <p>Catálogo exclusivo de bolsas estilo diseñador</p>
-        <p>Modelos premium disponibles ✨</p>
+        <h1>Descubre V & A Style ✨</h1>
+        <p>✨ Estás a un paso de comenzar tu sueño</p>
       </section>
 
       <main className="main">
@@ -1066,7 +1242,7 @@ Gracias
 
                 <div className="card-body">
                   <h3>{p.name}</h3>
-                  <div className="price">${(Number(p.price) || 0).toLocaleString()} MXN</div>
+                  <div className="price">${(Number(p.price) || 0).toLocaleString("es-MX")} MXN</div>
 
                   <button className="add" onClick={() => addToCart(p)}>
                     🛒 Agregar al carrito
@@ -1105,8 +1281,17 @@ Gracias
         <aside className="side">
           <div className="box">
             <div className="box-header">
-              <span>🛒 Tu carrito</span>
-              <button className="cart-btn" onClick={() => setCart([])}>×</button>
+              <span>🛒 Tu carrito ({cart.length})</span>
+              <button
+                className="cart-btn"
+                onClick={() => {
+                  setCart([]);
+                  localStorage.removeItem(ORDER_SENT_KEY);
+                  localStorage.removeItem(LAST_ADVISOR_KEY);
+                }}
+              >
+                ×
+              </button>
             </div>
 
             <div className="cart-content">
@@ -1119,15 +1304,18 @@ Gracias
                 <>
                   {cart.map((item, index) => (
                     <div key={index} className="cart-item">
-                      {item.name} — ${(Number(item.price) || 0).toLocaleString()} MXN
+                      {item.name} — ${getCleanPrice(item.price).toLocaleString("es-MX")} MXN
                     </div>
                   ))}
 
-                  <h3>Total: ${total.toLocaleString()} MXN</h3>
+                  <div className="cart-total">
+                    TOTAL DEL PEDIDO<br />
+                    ${Number(total || 0).toLocaleString("es-MX")} MXN
+                  </div>
 
                   {cart.length < 6 && (
                     <p className="minimum-order">
-                      Pedido mínimo: 6 piezas. Agrega {6 - cart.length} más.
+                      Pedido mínimo: 6 piezas. Te faltan {6 - cart.length} pieza{6 - cart.length === 1 ? "" : "s"}.
                     </p>
                   )}
 
@@ -1220,41 +1408,43 @@ Gracias
         <div className="info-card" ref={contactRef}>
           <h2>Contacto</h2>
           <p>
-            Escríbenos directamente con cualquiera de nuestros asesores o síguenos
-            en redes sociales para conocer nuestras novedades.
+            Escríbenos directamente por WhatsApp o síguenos en redes sociales
+            para conocer novedades, modelos disponibles y promociones.
           </p>
 
           <div className="contact-buttons">
             <button
-              className="contact-btn"
-              onClick={() => openLink("https://wa.me/524821357950")}
+              className="contact-btn whatsapp-btn"
+              onClick={() => openLink("https://wa.me/524776311393")}
             >
-              Asesor 1
+              <WhatsAppIcon /> WhatsApp Ventas
             </button>
 
             <button
-              className="contact-btn"
-              onClick={() => openLink("https://wa.me/524779177633")}
-            >
-              Asesor 2
-            </button>
-
-            <button
-              className="contact-btn social-btn"
+              className="contact-btn facebook-btn"
               onClick={() =>
                 openLink("https://www.facebook.com/share/1EfzrWvU3m/?mibextid=wwXIfr")
               }
             >
-              Facebook
+              <FacebookIcon /> Facebook
             </button>
 
             <button
-              className="contact-btn social-btn"
+              className="contact-btn instagram-btn"
               onClick={() =>
                 openLink("https://www.instagram.com/v_a_style.mx?igsh=MXdpdXlqOWE3ZGx2ag%3D%3D&utm_source=qr")
               }
             >
-              Instagram
+              <InstagramIcon /> Instagram
+            </button>
+
+            <button
+              className="contact-btn tiktok-btn"
+              onClick={() =>
+                openLink("https://www.tiktok.com/@va.style.mx?_r=1&_t=ZS-96qpRM125Z4")
+              }
+            >
+              <TikTokIcon /> TikTok
             </button>
           </div>
         </div>
@@ -1264,7 +1454,7 @@ Gracias
         <button
           className="floating-cart"
           onClick={() =>
-            document.querySelector(".side").scrollIntoView({
+            document.querySelector(".side")?.scrollIntoView({
               behavior: "smooth",
             })
           }
@@ -1276,10 +1466,6 @@ Gracias
       {selectedProduct && (
         <div className="image-modal" onClick={closeImage}>
           <button className="close-modal" onClick={closeImage}>×</button>
-
-          <div className="zoom-hint">
-            Doble toque o pellizca para acercar
-          </div>
 
           <div
             className="image-modal-content"
@@ -1311,8 +1497,6 @@ Gracias
       )}
 
       <footer className="footer">
-        <span>© 2025 V & A Style</span>
-        <span>🚚 Envíos a toda la república</span>
         <span>✨ Aquí empieza tu camino para emprender</span>
       </footer>
     </div>
