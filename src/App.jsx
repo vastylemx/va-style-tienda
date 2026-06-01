@@ -11,7 +11,11 @@ const categories = [
   "Maleta",
   "Muñequera",
   "Línea económica",
+  "Hombre",
+  "Tenis",
 ];
+
+const PRODUCTS_PER_PAGE = 20;
 
 const BETA_MODE = true;
 const BETA_WHATSAPP_NUMBER = "524776311393";
@@ -137,9 +141,12 @@ export default function App() {
   });
   const [editingProduct, setEditingProduct] = useState(null);
   const [toast, setToast] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [adminModal, setAdminModal] = useState(null);
   const [bulkUpload, setBulkUpload] = useState({
     baseName: "",
+    brand: "",
     category: "Bolsas",
     precio_mayorista: "",
     files: [],
@@ -161,6 +168,7 @@ export default function App() {
 
   const [newProduct, setNewProduct] = useState({
     name: "",
+    brand: "",
     category: "Bolsas",
     precio_mayorista: "",
     imageFile: null,
@@ -174,6 +182,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
   }, [cart]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [category, searchTerm]);
 
   useEffect(() => {
     return () => {
@@ -197,6 +209,7 @@ export default function App() {
       data.map((p) => ({
         id: p.id,
         name: p.name,
+        brand: p.brand || "",
         category: p.category,
         price: Number(p.wholesale_price) || 0,
         image: p.image_url,
@@ -204,10 +217,24 @@ export default function App() {
     );
   }
 
-  const filtered =
-    category === "Todas"
-      ? products
-      : products.filter((p) => p.category === category);
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  const filtered = products.filter((p) => {
+    const matchesCategory = category === "Todas" || p.category === category;
+
+    const matchesSearch =
+      !normalizedSearch ||
+      p.name.toLowerCase().includes(normalizedSearch) ||
+      (p.brand || "").toLowerCase().includes(normalizedSearch) ||
+      p.category.toLowerCase().includes(normalizedSearch);
+
+    return matchesCategory && matchesSearch;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PRODUCTS_PER_PAGE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
+  const paginatedProducts = filtered.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
 
   const total = cart
     .map((item) => getCleanPrice(item.price))
@@ -331,6 +358,7 @@ export default function App() {
     setEditingProduct(null);
     setNewProduct({
       name: "",
+      brand: "",
       category: "Bolsas",
       precio_mayorista: "",
       imageFile: null,
@@ -344,6 +372,7 @@ export default function App() {
 
     setNewProduct({
       name: product.name,
+      brand: product.brand || "",
       category: product.category,
       precio_mayorista: product.price,
       imageFile: null,
@@ -356,6 +385,7 @@ export default function App() {
   function openBulkUploadModal() {
     setBulkUpload({
       baseName: "",
+      brand: "",
       category: "Bolsas",
       precio_mayorista: "",
       files: [],
@@ -427,6 +457,7 @@ export default function App() {
         .from("products")
         .update({
           name: newProduct.name.trim().toUpperCase(),
+          brand: newProduct.brand.trim(),
           category: newProduct.category,
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
@@ -438,6 +469,7 @@ export default function App() {
       const result = await supabase.from("products").insert([
         {
           name: newProduct.name.trim().toUpperCase(),
+          brand: newProduct.brand.trim(),
           category: newProduct.category,
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
@@ -457,6 +489,7 @@ export default function App() {
 
     setNewProduct({
       name: "",
+      brand: "",
       category: "Bolsas",
       precio_mayorista: "",
       imageFile: null,
@@ -470,6 +503,7 @@ export default function App() {
 
   async function saveBulkProducts() {
     const baseName = bulkUpload.baseName.trim().toUpperCase();
+    const brand = bulkUpload.brand.trim();
     const price = getCleanPrice(bulkUpload.precio_mayorista);
     const files = Array.from(bulkUpload.files || []);
 
@@ -530,6 +564,7 @@ export default function App() {
       const { error: insertError } = await supabase.from("products").insert([
         {
           name: productName,
+          brand,
           category: bulkUpload.category,
           wholesale_price: price,
           image_url: publicUrl,
@@ -547,6 +582,7 @@ export default function App() {
     alert("Carga masiva terminada correctamente");
     setBulkUpload({
       baseName: "",
+      brand: "",
       category: "Bolsas",
       precio_mayorista: "",
       files: [],
@@ -608,7 +644,7 @@ export default function App() {
     const productsText = cart
       .map(
         (item, index) =>
-          `${index + 1}. ${item.name} - $${getCleanPrice(item.price).toLocaleString("es-MX")} MXN`
+          `${index + 1}. ${item.name}${item.brand ? ` / Marca: ${item.brand}` : ""} - $${getCleanPrice(item.price).toLocaleString("es-MX")} MXN`
       )
       .join("\n");
 
@@ -764,7 +800,40 @@ Gracias
           display: flex;
           flex-wrap: wrap;
           gap: 13px;
+          margin-bottom: 16px;
+        }
+
+        .catalog-tools {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
           margin-bottom: 22px;
+        }
+
+        .search-input {
+          flex: 1;
+          background: white;
+          border: 1px solid #eadad2;
+          color: #5f4943;
+          border-radius: 999px;
+          padding: 14px 18px;
+          font-size: 15px;
+          font-weight: 700;
+          box-shadow: 0 5px 12px rgba(0,0,0,.04);
+          outline: none;
+        }
+
+        .search-input:focus {
+          border-color: #c94462;
+          box-shadow: 0 0 0 3px rgba(201,68,98,.10);
+        }
+
+        .results-count {
+          color: #7a5c50;
+          font-size: 13px;
+          font-weight: 900;
+          white-space: nowrap;
         }
 
         .filter {
@@ -814,6 +883,13 @@ Gracias
           line-height: 1.2;
         }
 
+        .brand {
+          color: #7a5c50;
+          font-size: 13px;
+          font-weight: 800;
+          margin-bottom: 6px;
+        }
+
         .price {
           color: #c94462;
           font-weight: 800;
@@ -826,6 +902,50 @@ Gracias
           color: white;
           padding: 12px;
           border-radius: 6px;
+        }
+
+        .pagination {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          margin: 26px 0 0;
+          flex-wrap: wrap;
+        }
+
+        .page-btn {
+          background: #c94462;
+          color: white;
+          padding: 12px 18px;
+          border-radius: 999px;
+          font-size: 14px;
+        }
+
+        .page-btn:disabled {
+          opacity: .45;
+          cursor: not-allowed;
+        }
+
+        .page-info {
+          background: white;
+          border: 1px solid #eadbd3;
+          color: #7a4050;
+          padding: 11px 16px;
+          border-radius: 999px;
+          font-weight: 900;
+          font-size: 14px;
+          box-shadow: 0 5px 12px rgba(0,0,0,.04);
+        }
+
+        .empty-results {
+          background: white;
+          border: 1px solid #eadbd3;
+          color: #7a4050;
+          padding: 22px;
+          border-radius: 14px;
+          text-align: center;
+          font-weight: 900;
+          box-shadow: 0 8px 22px rgba(90,50,30,.08);
         }
 
         .side {
@@ -1288,7 +1408,25 @@ Gracias
 
           .filters {
             gap: 7px;
+            margin-bottom: 10px;
+          }
+
+          .catalog-tools {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
             margin-bottom: 12px;
+          }
+
+          .search-input {
+            width: 100%;
+            padding: 11px 14px;
+            font-size: 13px;
+          }
+
+          .results-count {
+            text-align: center;
+            font-size: 12px;
           }
 
           .filter {
@@ -1330,6 +1468,21 @@ Gracias
           .delete-btn {
             font-size: 12px;
             padding: 9px;
+          }
+
+          .pagination {
+            gap: 8px;
+            margin-top: 18px;
+          }
+
+          .page-btn {
+            padding: 10px 13px;
+            font-size: 12px;
+          }
+
+          .page-info {
+            font-size: 12px;
+            padding: 9px 12px;
           }
 
           .side {
@@ -1508,13 +1661,31 @@ Gracias
                 className={category === cat ? "filter active" : "filter"}
                 onClick={() => setCategory(cat)}
               >
-                {cat === "Todas" ? "🎁 Todas" : `👜 ${cat}`}
+                {cat === "Todas" ? "🎁 Todas" : cat === "Tenis" ? "👟 Tenis" : cat === "Hombre" ? "🧔 Hombre" : `👜 ${cat}`}
               </button>
             ))}
           </div>
 
-          <div className="grid">
-            {filtered.map((p) => (
+          <div className="catalog-tools">
+            <input
+              className="search-input"
+              placeholder="🔎 Buscar por código, modelo, marca o categoría"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <div className="results-count">
+              {filtered.length} producto{filtered.length === 1 ? "" : "s"}
+            </div>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="empty-results">
+              No encontramos productos con esa búsqueda.
+            </div>
+          ) : (
+            <>
+              <div className="grid">
+                {paginatedProducts.map((p) => (
               <div className="card" key={p.id}>
                 <img
                   src={p.image}
@@ -1524,6 +1695,7 @@ Gracias
 
                 <div className="card-body">
                   <h3>{p.name}</h3>
+                  {p.brand && <div className="brand">Marca: {p.brand}</div>}
                   <div className="price">${(Number(p.price) || 0).toLocaleString("es-MX")} MXN</div>
 
                   <button className="add" onClick={() => addToCart(p)}>
@@ -1556,8 +1728,34 @@ Gracias
                   )}
                 </div>
               </div>
-            ))}
-          </div>
+                ))}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="pagination">
+                  <button
+                    className="page-btn"
+                    disabled={safeCurrentPage === 1}
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  >
+                    ← Anterior
+                  </button>
+
+                  <span className="page-info">
+                    Página {safeCurrentPage} de {totalPages}
+                  </span>
+
+                  <button
+                    className="page-btn"
+                    disabled={safeCurrentPage === totalPages}
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </section>
 
         <aside className="side">
@@ -1586,7 +1784,7 @@ Gracias
                 <>
                   {cart.map((item, index) => (
                     <div key={index} className="cart-item">
-                      {item.name} — ${getCleanPrice(item.price).toLocaleString("es-MX")} MXN
+                      {item.name}{item.brand ? ` / Marca: ${item.brand}` : ""} — ${getCleanPrice(item.price).toLocaleString("es-MX")} MXN
                     </div>
                   ))}
 
@@ -1753,6 +1951,17 @@ Gracias
               }
             />
 
+            <input
+              placeholder="Marca. Ej: Michael Kors, Coach, Nike"
+              value={newProduct.brand}
+              onChange={(e) =>
+                setNewProduct({
+                  ...newProduct,
+                  brand: e.target.value,
+                })
+              }
+            />
+
             <select
               value={newProduct.category}
               onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
@@ -1764,6 +1973,8 @@ Gracias
               <option value="Maleta">Maleta</option>
               <option value="Muñequera">Muñequera</option>
               <option value="Línea económica">Línea económica</option>
+              <option value="Hombre">Hombre</option>
+              <option value="Tenis">Tenis</option>
             </select>
 
             <input
@@ -1794,7 +2005,7 @@ Gracias
             </div>
 
             <div className="bulk-note">
-              Escribe el código base del modelo. Si pones <strong>MYK021</strong> y seleccionas 5 fotos, se crearán como <strong>MYK021 1</strong>, <strong>MYK021 2</strong>, <strong>MYK021 3</strong>...
+              Escribe el código base del modelo y la marca. Si pones <strong>MYK021</strong> y seleccionas 5 fotos, se crearán como <strong>MYK021 1</strong>, <strong>MYK021 2</strong>, <strong>MYK021 3</strong>... con la misma marca.
             </div>
 
             <input
@@ -1804,6 +2015,13 @@ Gracias
               onChange={(e) =>
                 setBulkUpload({ ...bulkUpload, baseName: e.target.value.toUpperCase() })
               }
+            />
+
+            <input
+              placeholder="Marca para este modelo. Ej: Michael Kors"
+              value={bulkUpload.brand}
+              disabled={bulkUpload.uploading}
+              onChange={(e) => setBulkUpload({ ...bulkUpload, brand: e.target.value })}
             />
 
             <select
@@ -1818,6 +2036,8 @@ Gracias
               <option value="Maleta">Maleta</option>
               <option value="Muñequera">Muñequera</option>
               <option value="Línea económica">Línea económica</option>
+              <option value="Hombre">Hombre</option>
+              <option value="Tenis">Tenis</option>
             </select>
 
             <input
