@@ -37,6 +37,25 @@ function getCleanPrice(value) {
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
+function getDiscountPercent(value) {
+  const percent = getCleanPrice(value);
+  if (!Number.isFinite(percent)) return 0;
+  return Math.min(Math.max(percent, 0), 100);
+}
+
+function getFinalPrice(product) {
+  const originalPrice = getCleanPrice(product?.price);
+  const discountPercent = getDiscountPercent(product?.discountPercent);
+
+  if (!discountPercent) return originalPrice;
+
+  return Math.round(originalPrice * (1 - discountPercent / 100));
+}
+
+function formatMoney(value) {
+  return getCleanPrice(value).toLocaleString("es-MX");
+}
+
 function getSizeOptions(value) {
   if (!value) return [];
 
@@ -164,6 +183,7 @@ export default function App() {
     brand: "",
     category: "Bolsas",
     sizes: "",
+    discount_percent: "",
     precio_mayorista: "",
     files: [],
     uploading: false,
@@ -188,6 +208,7 @@ export default function App() {
     brand: "",
     category: "Bolsas",
     sizes: "",
+    discount_percent: "",
     precio_mayorista: "",
     imageFile: null,
     image_url: "",
@@ -230,6 +251,7 @@ export default function App() {
         brand: (p.brand || "").toUpperCase(),
         category: normalizeCategory(p.category),
         sizes: p.sizes || "",
+        discountPercent: getDiscountPercent(p.discount_percent),
         created_at: p.created_at,
         price: Number(p.wholesale_price) || 0,
         image: p.image_url,
@@ -267,9 +289,12 @@ export default function App() {
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
   const paginatedProducts = sortedProducts.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
 
-  const total = cart
+  const subtotal = cart
     .map((item) => getCleanPrice(item.price))
     .reduce((sum, price) => sum + price, 0);
+
+  const volumeDiscount = cart.length >= 40 ? Math.round(subtotal * 0.05) : 0;
+  const total = Math.max(subtotal - volumeDiscount, 0);
 
   function showToast(message) {
     setToast(message);
@@ -298,7 +323,9 @@ export default function App() {
       {
         ...product,
         selectedSize,
-        price: getCleanPrice(product.price),
+        originalPrice: getCleanPrice(product.price),
+        discountPercent: getDiscountPercent(product.discountPercent),
+        price: getFinalPrice(product),
       },
     ]);
 
@@ -408,6 +435,7 @@ export default function App() {
       brand: "",
       category: "Bolsas",
       sizes: "",
+      discount_percent: "",
       precio_mayorista: "",
       imageFile: null,
       image_url: "",
@@ -423,6 +451,7 @@ export default function App() {
       brand: product.brand || "",
       category: product.category,
       sizes: product.sizes || "",
+      discount_percent: product.discountPercent || "",
       precio_mayorista: product.price,
       imageFile: null,
       image_url: product.image,
@@ -437,6 +466,7 @@ export default function App() {
       brand: "",
       category: "Bolsas",
       sizes: "",
+      discount_percent: "",
       precio_mayorista: "",
       files: [],
       uploading: false,
@@ -510,6 +540,7 @@ export default function App() {
           brand: newProduct.brand.trim().toUpperCase(),
           category: newProduct.category,
           sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
+          discount_percent: getDiscountPercent(newProduct.discount_percent),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         })
@@ -523,6 +554,7 @@ export default function App() {
           brand: newProduct.brand.trim().toUpperCase(),
           category: newProduct.category,
           sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
+          discount_percent: getDiscountPercent(newProduct.discount_percent),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         },
@@ -544,6 +576,7 @@ export default function App() {
       brand: "",
       category: "Bolsas",
       sizes: "",
+      discount_percent: "",
       precio_mayorista: "",
       imageFile: null,
       image_url: "",
@@ -558,6 +591,7 @@ export default function App() {
     const baseName = bulkUpload.baseName.trim().toUpperCase();
     const brand = bulkUpload.brand.trim().toUpperCase();
     const sizes = bulkUpload.category === "Calzado" ? bulkUpload.sizes.trim().toUpperCase() : "";
+    const discountPercent = getDiscountPercent(bulkUpload.discount_percent);
     const price = getCleanPrice(bulkUpload.precio_mayorista);
     const files = Array.from(bulkUpload.files || []);
 
@@ -621,6 +655,7 @@ export default function App() {
           brand,
           category: bulkUpload.category,
           sizes,
+          discount_percent: discountPercent,
           wholesale_price: price,
           image_url: publicUrl,
         },
@@ -640,6 +675,7 @@ export default function App() {
       brand: "",
       category: "Bolsas",
       sizes: "",
+      discount_percent: "",
       precio_mayorista: "",
       files: [],
       uploading: false,
@@ -700,7 +736,7 @@ export default function App() {
     const productsText = cart
       .map(
         (item, index) =>
-          `${index + 1}. ${item.name}${item.brand ? ` / ${item.brand}` : ""}${item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""} - $${getCleanPrice(item.price).toLocaleString("es-MX")} MXN`
+          `${index + 1}. ${item.name}${item.brand ? ` / ${item.brand}` : ""}${item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""}${item.discountPercent ? ` / Desc. ${item.discountPercent}%` : ""} - $${formatMoney(item.price)} MXN`
       )
       .join("\n");
 
@@ -713,7 +749,8 @@ Nombre: ${customerName.trim()}
 PEDIDO
 ${productsText}
 
-TOTAL: $${total.toLocaleString("es-MX")} MXN
+SUBTOTAL: $${formatMoney(subtotal)} MXN
+${volumeDiscount > 0 ? `DESCUENTO MAYOREO 5%: -$${formatMoney(volumeDiscount)} MXN\n` : ""}TOTAL FINAL: $${formatMoney(total)} MXN
 
 Gracias
 `;
@@ -960,6 +997,7 @@ Gracias
         }
 
         .card {
+          position: relative;
           background: white;
           border-radius: 10px;
           overflow: hidden;
@@ -1001,6 +1039,54 @@ Gracias
           font-weight: 900;
           margin-bottom: 6px;
           font-size: 14px;
+        }
+
+        .price-block {
+          margin-bottom: 6px;
+          line-height: 1.1;
+        }
+
+        .old-price {
+          display: inline-block;
+          color: #8f827c;
+          font-size: 12px;
+          font-weight: 800;
+          text-decoration-line: line-through;
+          text-decoration-color: #c94462;
+          text-decoration-thickness: 2px;
+          margin-right: 6px;
+        }
+
+        .sale-price {
+          color: #c94462;
+          font-size: 15px;
+          font-weight: 950;
+        }
+
+        .discount-badge {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          background: #c94462;
+          color: white;
+          border-radius: 999px;
+          padding: 6px 8px;
+          font-size: 12px;
+          font-weight: 950;
+          box-shadow: 0 6px 14px rgba(0,0,0,.16);
+          z-index: 2;
+        }
+
+        .discount-row,
+        .subtotal-row {
+          font-size: 14px;
+          font-weight: 900;
+          color: #7a4050;
+          margin: 6px 0;
+        }
+
+        .discount-row {
+          color: #c94462;
         }
 
         .add {
@@ -1593,6 +1679,21 @@ Gracias
             margin-bottom: 4px;
           }
 
+          .old-price {
+            font-size: 10.5px;
+          }
+
+          .sale-price {
+            font-size: 13px;
+          }
+
+          .discount-badge {
+            top: 6px;
+            right: 6px;
+            font-size: 10.5px;
+            padding: 5px 7px;
+          }
+
           .add {
             font-size: 11.5px;
             padding: 7px 8px;
@@ -1851,7 +1952,18 @@ Gracias
                 <div className="card-body">
                   <h3>{p.name}</h3>
                   {p.brand && <div className="brand">{p.brand}</div>}
-                  <div className="price">${(Number(p.price) || 0).toLocaleString("es-MX")} MXN</div>
+                  {getDiscountPercent(p.discountPercent) > 0 && (
+                    <div className="discount-badge">-{getDiscountPercent(p.discountPercent)}%</div>
+                  )}
+
+                  {getDiscountPercent(p.discountPercent) > 0 ? (
+                    <div className="price-block">
+                      <span className="old-price">${formatMoney(p.price)} MXN</span>
+                      <div className="sale-price">${formatMoney(getFinalPrice(p))} MXN</div>
+                    </div>
+                  ) : (
+                    <div className="price">${formatMoney(p.price)} MXN</div>
+                  )}
 
                   {p.category === "Calzado" && (
                     <select
@@ -1963,13 +2075,24 @@ Gracias
                 <>
                   {cart.map((item, index) => (
                     <div key={index} className="cart-item">
-                      {item.name}{item.brand ? ` / ${item.brand}` : ""}{item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""} — ${getCleanPrice(item.price).toLocaleString("es-MX")} MXN
+                      {item.name}{item.brand ? ` / ${item.brand}` : ""}{item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""}{item.discountPercent ? ` / Desc. ${item.discountPercent}%` : ""} — ${formatMoney(item.price)} MXN
                     </div>
                   ))}
 
                   <div className="cart-total">
-                    TOTAL DEL PEDIDO<br />
-                    ${Number(total || 0).toLocaleString("es-MX")} MXN
+                    {volumeDiscount > 0 ? (
+                      <>
+                        <div className="subtotal-row">Subtotal: ${formatMoney(subtotal)} MXN</div>
+                        <div className="discount-row">Descuento mayoreo 5%: -${formatMoney(volumeDiscount)} MXN</div>
+                        TOTAL FINAL<br />
+                        ${formatMoney(total)} MXN
+                      </>
+                    ) : (
+                      <>
+                        TOTAL DEL PEDIDO<br />
+                        ${formatMoney(total)} MXN
+                      </>
+                    )}
                   </div>
 
                   <div className="shipping-note">
@@ -2177,6 +2300,12 @@ Gracias
             />
 
             <input
+              placeholder="Descuento % opcional. Ej: 30"
+              value={newProduct.discount_percent}
+              onChange={(e) => setNewProduct({ ...newProduct, discount_percent: e.target.value })}
+            />
+
+            <input
               type="file"
               accept="image/*"
               onChange={(e) => setNewProduct({ ...newProduct, imageFile: e.target.files[0] })}
@@ -2247,6 +2376,13 @@ Gracias
               value={bulkUpload.precio_mayorista}
               disabled={bulkUpload.uploading}
               onChange={(e) => setBulkUpload({ ...bulkUpload, precio_mayorista: e.target.value })}
+            />
+
+            <input
+              placeholder="Descuento % opcional para este lote. Ej: 30"
+              value={bulkUpload.discount_percent}
+              disabled={bulkUpload.uploading}
+              onChange={(e) => setBulkUpload({ ...bulkUpload, discount_percent: e.target.value })}
             />
 
             <input
