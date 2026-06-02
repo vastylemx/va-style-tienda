@@ -154,6 +154,8 @@ function TikTokIcon() {
 
 export default function App() {
   const [products, setProducts] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [showroomItems, setShowroomItems] = useState([]);
   const [category, setCategory] = useState("Bolsas");
   const [cart, setCart] = useState(() => {
     try {
@@ -184,10 +186,26 @@ export default function App() {
     category: "Bolsas",
     sizes: "",
     discount_percent: "",
+    isNewArrival: false,
     precio_mayorista: "",
     files: [],
     uploading: false,
     progress: "",
+  });
+
+  const [reviewForm, setReviewForm] = useState({
+    name: "",
+    rating: "5",
+    comment: "",
+    mediaFile: null,
+  });
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [showroomForm, setShowroomForm] = useState({
+    title: "",
+    codes: "",
+    description: "",
+    imageFile: null,
+    uploading: false,
   });
 
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -209,6 +227,7 @@ export default function App() {
     category: "Bolsas",
     sizes: "",
     discount_percent: "",
+    isNewArrival: false,
     precio_mayorista: "",
     imageFile: null,
     image_url: "",
@@ -216,6 +235,8 @@ export default function App() {
 
   useEffect(() => {
     fetchProducts();
+    fetchReviews();
+    fetchShowroomArrivals();
   }, []);
 
   useEffect(() => {
@@ -252,12 +273,45 @@ export default function App() {
         category: normalizeCategory(p.category),
         sizes: p.sizes || "",
         discountPercent: getDiscountPercent(p.discount_percent),
+        isNewArrival: Boolean(p.is_new_arrival),
         created_at: p.created_at,
         price: Number(p.wholesale_price) || 0,
         image: p.image_url,
       }))
     );
   }
+
+  async function fetchReviews() {
+    const { data, error } = await supabase
+      .from("reviews")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    setReviews(data || []);
+  }
+
+  async function fetchShowroomArrivals() {
+    const { data, error } = await supabase
+      .from("showroom_arrivals")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    setShowroomItems(data || []);
+  }
+
+  const approvedReviews = reviews.filter((review) => review.approved);
+  const pendingReviews = reviews.filter((review) => !review.approved);
+  const showroomArrivals = showroomItems.slice(0, 12);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
 
@@ -436,6 +490,7 @@ export default function App() {
       category: "Bolsas",
       sizes: "",
       discount_percent: "",
+      isNewArrival: false,
       precio_mayorista: "",
       imageFile: null,
       image_url: "",
@@ -452,6 +507,7 @@ export default function App() {
       category: product.category,
       sizes: product.sizes || "",
       discount_percent: product.discountPercent || "",
+      isNewArrival: Boolean(product.isNewArrival),
       precio_mayorista: product.price,
       imageFile: null,
       image_url: product.image,
@@ -467,6 +523,7 @@ export default function App() {
       category: "Bolsas",
       sizes: "",
       discount_percent: "",
+      isNewArrival: false,
       precio_mayorista: "",
       files: [],
       uploading: false,
@@ -541,6 +598,7 @@ export default function App() {
           category: newProduct.category,
           sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
           discount_percent: getDiscountPercent(newProduct.discount_percent),
+          is_new_arrival: Boolean(newProduct.isNewArrival),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         })
@@ -555,6 +613,7 @@ export default function App() {
           category: newProduct.category,
           sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
           discount_percent: getDiscountPercent(newProduct.discount_percent),
+          is_new_arrival: Boolean(newProduct.isNewArrival),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           image_url: publicUrl,
         },
@@ -577,6 +636,7 @@ export default function App() {
       category: "Bolsas",
       sizes: "",
       discount_percent: "",
+      isNewArrival: false,
       precio_mayorista: "",
       imageFile: null,
       image_url: "",
@@ -592,6 +652,7 @@ export default function App() {
     const brand = bulkUpload.brand.trim().toUpperCase();
     const sizes = bulkUpload.category === "Calzado" ? bulkUpload.sizes.trim().toUpperCase() : "";
     const discountPercent = getDiscountPercent(bulkUpload.discount_percent);
+    const isNewArrival = Boolean(bulkUpload.isNewArrival);
     const price = getCleanPrice(bulkUpload.precio_mayorista);
     const files = Array.from(bulkUpload.files || []);
 
@@ -656,6 +717,7 @@ export default function App() {
           category: bulkUpload.category,
           sizes,
           discount_percent: discountPercent,
+          is_new_arrival: isNewArrival,
           wholesale_price: price,
           image_url: publicUrl,
         },
@@ -676,12 +738,207 @@ export default function App() {
       category: "Bolsas",
       sizes: "",
       discount_percent: "",
+      isNewArrival: false,
       precio_mayorista: "",
       files: [],
       uploading: false,
       progress: "",
     });
     setAdminModal(null);
+    fetchProducts();
+  }
+
+  async function submitReview() {
+    if (!reviewForm.name.trim()) {
+      alert("Escribe tu nombre para enviar la reseña.");
+      return;
+    }
+
+    if (!reviewForm.comment.trim()) {
+      alert("Escribe tu reseña.");
+      return;
+    }
+
+    setReviewSubmitting(true);
+    let mediaUrl = "";
+    let mediaType = "";
+
+    try {
+      if (reviewForm.mediaFile) {
+        let fileToUpload = reviewForm.mediaFile;
+        if (reviewForm.mediaFile.type?.startsWith("image/")) {
+          fileToUpload = await compressImage(reviewForm.mediaFile, 1400, 0.82);
+        }
+
+        mediaType = fileToUpload.type?.startsWith("video/") ? "video" : "image";
+        const extension = mediaType === "video" ? (fileToUpload.name.split(".").pop() || "mp4") : "jpg";
+        const fileName = `${Date.now()}-review.${extension}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("review-media")
+          .upload(fileName, fileToUpload, {
+            contentType: fileToUpload.type || (mediaType === "video" ? "video/mp4" : "image/jpeg"),
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("review-media").getPublicUrl(fileName);
+
+        mediaUrl = publicUrl;
+      }
+
+      const { error } = await supabase.from("reviews").insert([
+        {
+          customer_name: reviewForm.name.trim(),
+          rating: Number(reviewForm.rating) || 5,
+          comment: reviewForm.comment.trim(),
+          media_url: mediaUrl,
+          media_type: mediaType,
+          approved: false,
+        },
+      ]);
+
+      if (error) throw error;
+
+      alert("✅ Gracias, tu reseña fue enviada correctamente.");
+      setReviewForm({ name: "", rating: "5", comment: "", mediaFile: null });
+    } catch (error) {
+      alert(error.message || "No se pudo enviar la reseña. Intenta de nuevo.");
+      console.log(error);
+    } finally {
+      setReviewSubmitting(false);
+      fetchReviews();
+    }
+  }
+
+  async function approveReview(id) {
+    const { error } = await supabase.from("reviews").update({ approved: true }).eq("id", id);
+
+    if (error) {
+      alert(error.message);
+      console.log(error);
+      return;
+    }
+
+    fetchReviews();
+  }
+
+  async function deleteReview(id) {
+    const confirmDelete = confirm("¿Seguro que quieres eliminar esta reseña?");
+    if (!confirmDelete) return;
+
+    const { error } = await supabase.from("reviews").delete().eq("id", id);
+
+    if (error) {
+      alert(error.message);
+      console.log(error);
+      return;
+    }
+
+    fetchReviews();
+  }
+
+  async function saveShowroomArrival() {
+    if (!showroomForm.title.trim()) {
+      alert("Escribe el título del showroom.");
+      return;
+    }
+
+    if (!showroomForm.codes.trim()) {
+      alert("Escribe el código o códigos visibles.");
+      return;
+    }
+
+    if (!showroomForm.imageFile) {
+      alert("Selecciona una imagen para el showroom.");
+      return;
+    }
+
+    setShowroomForm((prev) => ({ ...prev, uploading: true }));
+
+    try {
+      const file = await compressImage(showroomForm.imageFile, 1600, 0.84);
+      const safeName = showroomForm.title
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9-_]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase();
+      const fileName = `${Date.now()}-${safeName || "showroom"}.jpg`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("showroom-media")
+        .upload(fileName, file, {
+          contentType: file.type || "image/jpeg",
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("showroom-media").getPublicUrl(fileName);
+
+      const { error } = await supabase.from("showroom_arrivals").insert([
+        {
+          title: showroomForm.title.trim().toUpperCase(),
+          codes: showroomForm.codes.trim().toUpperCase(),
+          description: showroomForm.description.trim(),
+          image_url: publicUrl,
+        },
+      ]);
+
+      if (error) throw error;
+
+      alert("Showroom guardado correctamente");
+      setShowroomForm({
+        title: "",
+        codes: "",
+        description: "",
+        imageFile: null,
+        uploading: false,
+      });
+      setAdminModal(null);
+      fetchShowroomArrivals();
+    } catch (error) {
+      alert(error.message || "No se pudo guardar el showroom.");
+      console.log(error);
+      setShowroomForm((prev) => ({ ...prev, uploading: false }));
+    }
+  }
+
+  async function deleteShowroomArrival(id) {
+    const confirmDelete = confirm("¿Seguro que quieres eliminar este showroom?");
+    if (!confirmDelete) return;
+
+    const { error } = await supabase.from("showroom_arrivals").delete().eq("id", id);
+
+    if (error) {
+      alert(error.message);
+      console.log(error);
+      return;
+    }
+
+    fetchShowroomArrivals();
+  }
+
+  async function toggleNewArrival(product) {
+    const { error } = await supabase
+      .from("products")
+      .update({ is_new_arrival: !product.isNewArrival })
+      .eq("id", product.id);
+
+    if (error) {
+      alert(error.message);
+      console.log(error);
+      return;
+    }
+
     fetchProducts();
   }
 
@@ -1141,6 +1398,176 @@ Gracias
           text-align: center;
           font-weight: 900;
           box-shadow: 0 8px 22px rgba(90,50,30,.08);
+        }
+
+        .new-arrivals-section,
+        .reviews-section {
+          margin: 22px 38px 0;
+          background: white;
+          border: 1px solid #eadbd3;
+          border-radius: 18px;
+          padding: 20px;
+          box-shadow: 0 8px 26px rgba(90,50,30,.10);
+        }
+
+        .section-title-wrap {
+          text-align: center;
+          margin-bottom: 16px;
+        }
+
+        .section-title-wrap h2 {
+          margin: 0;
+          color: #7a4050;
+          font-family: Georgia, serif;
+          font-size: 28px;
+        }
+
+        .section-title-wrap p {
+          margin: 8px auto 0;
+          color: #6b403e;
+          font-weight: 800;
+          font-size: 14px;
+        }
+
+        .new-arrivals-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(140px, 1fr));
+          gap: 14px;
+        }
+
+        .arrival-card {
+          background: #fffaf7;
+          border: 1px solid #eadbd3;
+          border-radius: 14px;
+          overflow: hidden;
+          padding: 0;
+          box-shadow: 0 7px 18px rgba(90,50,30,.10);
+        }
+
+        .arrival-card img {
+          width: 100%;
+          height: 170px;
+          object-fit: contain;
+          display: block;
+          background: #fff4ea;
+        }
+
+        .arrival-card span {
+          display: block;
+          padding: 10px;
+          color: #7a4050;
+          font-size: 14px;
+          font-weight: 950;
+          text-align: center;
+        }
+
+        .arrival-title {
+          color: #2f2927;
+          font-size: 13px;
+          font-weight: 900;
+          text-align: center;
+          padding: 0 10px 4px;
+        }
+
+        .arrival-desc {
+          color: #6b403e;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1.35;
+          text-align: center;
+          padding: 0 10px 12px;
+        }
+
+        .reviews-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          margin-bottom: 18px;
+        }
+
+        .review-card,
+        .review-form-card,
+        .admin-review-item {
+          background: #fffaf7;
+          border: 1px solid #eadbd3;
+          border-radius: 14px;
+          padding: 15px;
+          box-shadow: 0 7px 18px rgba(90,50,30,.08);
+        }
+
+        .review-stars {
+          font-size: 16px;
+          margin-bottom: 8px;
+        }
+
+        .review-card p,
+        .admin-review-item p {
+          color: #5f4943;
+          font-weight: 700;
+          line-height: 1.45;
+        }
+
+        .review-media {
+          width: 100%;
+          max-height: 260px;
+          object-fit: contain;
+          border-radius: 12px;
+          margin-top: 10px;
+          background: #fff4ea;
+        }
+
+        .review-form-card {
+          max-width: 620px;
+          margin: 0 auto;
+        }
+
+        .review-form-card h3 {
+          margin: 0 0 12px;
+          color: #7a4050;
+          text-align: center;
+          font-family: Georgia, serif;
+        }
+
+        .review-form-card input,
+        .review-form-card select,
+        .review-form-card textarea {
+          width: 100%;
+          padding: 13px;
+          border-radius: 10px;
+          border: 1px solid #eadbd3;
+          margin: 8px 0;
+          font-size: 14px;
+          font-family: Arial, sans-serif;
+        }
+
+        .review-form-card textarea {
+          min-height: 92px;
+          resize: vertical;
+        }
+
+        .admin-check {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: #fff4ea;
+          border: 1px solid #eadbd3;
+          border-radius: 12px;
+          padding: 12px;
+          color: #7a4050;
+          font-size: 14px;
+          font-weight: 900;
+          margin: 10px 0;
+        }
+
+        .admin-check input {
+          width: auto !important;
+          margin: 0 !important;
+        }
+
+        .admin-review-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
         }
 
         .side {
@@ -1720,6 +2147,47 @@ Gracias
             padding: 9px 12px;
           }
 
+          .new-arrivals-section,
+          .reviews-section {
+            margin: 14px 10px 0;
+            padding: 15px 12px;
+            border-radius: 16px;
+          }
+
+          .section-title-wrap h2 {
+            font-size: 23px;
+          }
+
+          .section-title-wrap p {
+            font-size: 12px;
+          }
+
+          .new-arrivals-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+
+          .arrival-card img {
+            height: 135px;
+          }
+
+          .arrival-card span {
+            font-size: 12px;
+            padding: 8px;
+          }
+
+          .reviews-grid {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+
+          .review-form-card input,
+          .review-form-card select,
+          .review-form-card textarea {
+            font-size: 13px;
+            padding: 11px;
+          }
+
           .side {
             width: 100%;
             gap: 16px;
@@ -1883,8 +2351,30 @@ Gracias
         <div className="admin-toolbar">
           <button onClick={openAddProductModal}>➕ Agregar producto</button>
           <button onClick={openBulkUploadModal}>📦 Carga masiva</button>
+          <button onClick={() => setAdminModal("showroom")}>✨ Showroom</button>
+          <button onClick={() => setAdminModal("reviews")}>⭐ Reseñas ({pendingReviews.length})</button>
           <button className="logout-btn" onClick={closeAdminSession}>🚪 Cerrar sesión admin</button>
         </div>
+      )}
+
+      {showroomArrivals.length > 0 && (
+        <section className="new-arrivals-section">
+          <div className="section-title-wrap">
+            <h2>✨ New Arrivals</h2>
+            <p>Showroom de nuevas colecciones. Busca los códigos en el catálogo para agregarlos a tu pedido.</p>
+          </div>
+
+          <div className="new-arrivals-grid">
+            {showroomArrivals.map((item) => (
+              <div className="arrival-card" key={item.id}>
+                <img src={item.image_url} alt={item.title} />
+                <span>{item.codes}</span>
+                {item.title && <div className="arrival-title">{item.title}</div>}
+                {item.description && <div className="arrival-desc">{item.description}</div>}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       <main className="main">
@@ -1999,6 +2489,7 @@ Gracias
                       >
                         Editar producto
                       </button>
+
 
                       <button
                         className="delete-btn"
@@ -2190,6 +2681,69 @@ Gracias
         </div>
       </section>
 
+      <section className="reviews-section">
+        <div className="section-title-wrap">
+          <h2>⭐ Opiniones de nuestros clientes</h2>
+          <p>Experiencias reales de clientes V & A Style.</p>
+        </div>
+
+        {approvedReviews.length > 0 && (
+          <div className="reviews-grid">
+            {approvedReviews.slice(0, 8).map((review) => (
+              <div className="review-card" key={review.id}>
+                <div className="review-stars">{"⭐".repeat(Number(review.rating) || 5)}</div>
+                <p>“{review.comment}”</p>
+                <strong>— {review.customer_name}</strong>
+
+                {review.media_url && review.media_type === "video" && (
+                  <video src={review.media_url} controls className="review-media" />
+                )}
+
+                {review.media_url && review.media_type !== "video" && (
+                  <img src={review.media_url} alt="Reseña de cliente" className="review-media" />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="review-form-card">
+          <h3>Comparte tu experiencia</h3>
+          <input
+            placeholder="Tu nombre"
+            value={reviewForm.name}
+            onChange={(e) => setReviewForm({ ...reviewForm, name: e.target.value })}
+          />
+
+          <select
+            value={reviewForm.rating}
+            onChange={(e) => setReviewForm({ ...reviewForm, rating: e.target.value })}
+          >
+            <option value="5">⭐⭐⭐⭐⭐ Excelente</option>
+            <option value="4">⭐⭐⭐⭐ Muy buena</option>
+            <option value="3">⭐⭐⭐ Buena</option>
+            <option value="2">⭐⭐ Regular</option>
+            <option value="1">⭐ Mala</option>
+          </select>
+
+          <textarea
+            placeholder="Escribe tu reseña"
+            value={reviewForm.comment}
+            onChange={(e) => setReviewForm({ ...reviewForm, comment: e.target.value })}
+          />
+
+          <input
+            type="file"
+            accept="image/*,video/*"
+            onChange={(e) => setReviewForm({ ...reviewForm, mediaFile: e.target.files[0] || null })}
+          />
+
+          <button className="pink-btn" onClick={submitReview} disabled={reviewSubmitting}>
+            {reviewSubmitting ? "Enviando..." : "Enviar reseña"}
+          </button>
+        </div>
+      </section>
+
       {cart.length > 0 && (
         <button
           className="floating-cart"
@@ -2305,6 +2859,7 @@ Gracias
               onChange={(e) => setNewProduct({ ...newProduct, discount_percent: e.target.value })}
             />
 
+
             <input
               type="file"
               accept="image/*"
@@ -2385,6 +2940,7 @@ Gracias
               onChange={(e) => setBulkUpload({ ...bulkUpload, discount_percent: e.target.value })}
             />
 
+
             <input
               type="file"
               accept="image/*"
@@ -2412,6 +2968,117 @@ Gracias
 
             {bulkUpload.progress && (
               <div className="bulk-progress">{bulkUpload.progress}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showAdmin && adminModal === "showroom" && (
+        <div className="modal-overlay" onClick={closeAdminModal}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>✨ Administrar showroom</h3>
+              <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
+            </div>
+
+            <div className="bulk-note">
+              Sube fotos grupales, editoriales o banners de nuevas colecciones. Esto NO agrega productos al carrito; solo funciona como vitrina visual.
+            </div>
+
+            <input
+              placeholder="Título. Ej: NUEVA COLECCIÓN MK"
+              value={showroomForm.title}
+              disabled={showroomForm.uploading}
+              onChange={(e) => setShowroomForm({ ...showroomForm, title: e.target.value.toUpperCase() })}
+            />
+
+            <input
+              placeholder="Códigos visibles. Ej: MYK021 • COA118 • LV550"
+              value={showroomForm.codes}
+              disabled={showroomForm.uploading}
+              onChange={(e) => setShowroomForm({ ...showroomForm, codes: e.target.value.toUpperCase() })}
+            />
+
+            <input
+              placeholder="Texto opcional. Ej: Nuevas piezas disponibles esta semana"
+              value={showroomForm.description}
+              disabled={showroomForm.uploading}
+              onChange={(e) => setShowroomForm({ ...showroomForm, description: e.target.value })}
+            />
+
+            <input
+              type="file"
+              accept="image/*"
+              disabled={showroomForm.uploading}
+              onChange={(e) => setShowroomForm({ ...showroomForm, imageFile: e.target.files[0] })}
+            />
+
+            <button
+              className="pink-btn"
+              style={{ width: "100%" }}
+              onClick={saveShowroomArrival}
+              disabled={showroomForm.uploading}
+            >
+              {showroomForm.uploading ? "Subiendo showroom..." : "Guardar showroom"}
+            </button>
+
+            <div className="admin-review-list" style={{ marginTop: "16px" }}>
+              {showroomItems.length === 0 ? (
+                <div className="bulk-note">Todavía no hay imágenes en showroom.</div>
+              ) : (
+                showroomItems.map((item) => (
+                  <div className="admin-review-item" key={item.id}>
+                    <strong>{item.title}</strong>
+                    <p>{item.codes}</p>
+                    {item.description && <p>{item.description}</p>}
+                    <img src={item.image_url} alt={item.title} className="review-media" />
+                    <button className="delete-btn" onClick={() => deleteShowroomArrival(item.id)}>
+                      Eliminar showroom
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAdmin && adminModal === "reviews" && (
+        <div className="modal-overlay" onClick={closeAdminModal}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>⭐ Administrar reseñas</h3>
+              <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
+            </div>
+
+            {reviews.length === 0 ? (
+              <div className="bulk-note">Todavía no hay reseñas.</div>
+            ) : (
+              <div className="admin-review-list">
+                {reviews.map((review) => (
+                  <div className="admin-review-item" key={review.id}>
+                    <strong>{review.customer_name}</strong>
+                    <div>{"⭐".repeat(Number(review.rating) || 5)}</div>
+                    <p>{review.comment}</p>
+                    {review.media_url && review.media_type === "video" && (
+                      <video src={review.media_url} controls className="review-media" />
+                    )}
+                    {review.media_url && review.media_type !== "video" && (
+                      <img src={review.media_url} alt="Reseña" className="review-media" />
+                    )}
+                    <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+                      {!review.approved && (
+                        <button className="pink-btn" onClick={() => approveReview(review.id)}>
+                          Aprobar
+                        </button>
+                      )}
+                      <button className="delete-btn" onClick={() => deleteReview(review.id)}>
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
