@@ -373,6 +373,9 @@ export default function App() {
   const [variantQuantities, setVariantQuantities] = useState({});
   const [imageZoom, setImageZoom] = useState(1);
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
+  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
+  const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "" });
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   const catalogRef = useRef(null);
   const aboutRef = useRef(null);
@@ -420,6 +423,24 @@ export default function App() {
 
     window.gtag("js", new Date());
     window.gtag("config", GA_MEASUREMENT_ID);
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get("payment");
+
+    if (paymentStatus === "success") {
+      showToast("Pago recibido ✅");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    if (paymentStatus === "pending") {
+      showToast("Pago pendiente de confirmación ⏳");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    if (paymentStatus === "failure") {
+      showToast("El pago no se completó");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -1341,6 +1362,129 @@ export default function App() {
     return selectedNumber;
   }
 
+  function openMercadoPagoModal() {
+    if (!cart.length) {
+      alert("Tu carrito está vacío.");
+      return;
+    }
+
+    if (cart.length < 6) {
+      alert("Pedido mínimo: 6 piezas.");
+      return;
+    }
+
+    if (needsShippingQuote) {
+      alert("Este pedido necesita cotización especial de envío. Envíalo por WhatsApp para confirmar el total.");
+      return;
+    }
+
+    setCheckoutForm({ name: "", phone: "" });
+    setCheckoutModalOpen(true);
+  }
+
+  function closeCheckoutModal() {
+    if (checkoutLoading) return;
+    setCheckoutModalOpen(false);
+  }
+
+  async function startMercadoPagoCheckout() {
+    const customerName = checkoutForm.name.trim();
+    const customerPhone = checkoutForm.phone.replace(/\D/g, "");
+
+    if (!customerName) {
+      alert("Escribe tu nombre.");
+      return;
+    }
+
+    if (customerPhone.length < 10) {
+      alert("Escribe un WhatsApp válido con lada.");
+      return;
+    }
+
+    if (!cart.length || needsShippingQuote || total <= 0) {
+      alert("No se puede procesar este pedido. Revisa el carrito.");
+      return;
+    }
+
+    setCheckoutLoading(true);
+
+    try {
+      const orderPayload = {
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        subtotal,
+        shipping_units: shippingUnits,
+        shipping_cost: shippingCost || 0,
+        service_fee: serviceFee,
+        volume_discount: volumeDiscount,
+        total,
+        payment_method: "mercadopago",
+        payment_status: "pending",
+      };
+
+      const { data: orderData, error: orderError } = await supabase
+        .from("orders")
+        .insert([orderPayload])
+        .select("id")
+        .single();
+
+      if (orderError) throw orderError;
+
+      await supabase.from("customers").insert([
+        {
+          name: customerName,
+          phone: customerPhone,
+          total_orders: 0,
+          total_spent: 0,
+          last_order_date: new Date().toISOString(),
+        },
+      ]);
+
+      const preferenceResponse = await fetch("/api/create-preference", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId: orderData.id,
+          total,
+          items: getCartSummary(cart).map((item) => ({
+            name: item.modelCode || item.name,
+            color: item.variantColor || "",
+            brand: item.brand || "",
+            quantity: item.quantity,
+            price: item.price,
+          })),
+        }),
+      });
+
+      const preferenceData = await preferenceResponse.json();
+
+      if (!preferenceResponse.ok || !preferenceData.init_point) {
+        console.log(preferenceData);
+        throw new Error("No se pudo generar el link de pago.");
+      }
+
+      trackEvent("begin_checkout", {
+        items: cart.length,
+        subtotal,
+        discount: volumeDiscount,
+        shipping_units: shippingUnits,
+        shipping_cost: shippingCost || 0,
+        service_fee: serviceFee,
+        value: total,
+        currency: "MXN",
+        payment_method: "mercadopago",
+      });
+
+      window.location.assign(preferenceData.init_point);
+    } catch (error) {
+      console.log(error);
+      alert(error.message || "No se pudo iniciar el pago. Intenta de nuevo.");
+      setCheckoutLoading(false);
+    }
+  }
+
   async function sendWhatsApp() {
     if (cart.length < 6) {
       alert("Pedido mínimo: 6 piezas.");
@@ -2037,6 +2181,89 @@ Gracias
           color: #9b4f5d;
           font-weight: 900;
           margin-top: 8px;
+        }
+
+        .mercadopago-btn {
+          width: 100%;
+          background: #009ee3;
+          color: white;
+          padding: 13px 14px;
+          border-radius: 999px;
+          font-size: 15px;
+          margin: 4px 0 10px;
+          box-shadow: 0 8px 16px rgba(0, 158, 227, .18);
+        }
+
+        .mercadopago-btn:disabled {
+          opacity: .65;
+          cursor: not-allowed;
+        }
+
+        .checkout-modal {
+          width: min(440px, 100%);
+          background: white;
+          border-radius: 18px;
+          border: 1px solid #eadbd3;
+          box-shadow: 0 18px 45px rgba(0,0,0,.25);
+          padding: 20px;
+        }
+
+        .checkout-modal h3 {
+          margin: 0 0 8px;
+          color: #7a4050;
+          font-family: Georgia, serif;
+          font-size: 24px;
+          text-align: center;
+        }
+
+        .checkout-modal p {
+          margin: 0 0 14px;
+          color: #6b403e;
+          font-size: 14px;
+          font-weight: 800;
+          text-align: center;
+          line-height: 1.4;
+        }
+
+        .checkout-modal input {
+          width: 100%;
+          padding: 14px;
+          border-radius: 10px;
+          border: 1px solid #eadbd3;
+          margin: 8px 0;
+          font-size: 15px;
+          outline: none;
+        }
+
+        .checkout-modal input:focus {
+          border-color: #c94462;
+          box-shadow: 0 0 0 3px rgba(201,68,98,.10);
+        }
+
+        .checkout-total {
+          margin: 12px 0;
+          padding: 12px;
+          border-radius: 12px;
+          background: #fff4ea;
+          color: #7a4050;
+          font-size: 18px;
+          font-weight: 950;
+          text-align: center;
+        }
+
+        .modal-actions {
+          display: grid;
+          grid-template-columns: 1fr 1.3fr;
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .secondary-btn {
+          background: #fff4ea;
+          color: #7a4050;
+          border: 1px solid #eadbd3;
+          border-radius: 999px;
+          padding: 13px 14px;
         }
 
 
@@ -3169,6 +3396,10 @@ Gracias
                     </p>
                   )}
 
+                  <button className="mercadopago-btn" onClick={openMercadoPagoModal}>
+                    💳 Pagar con Mercado Pago
+                  </button>
+
                   <button className="pink-btn" onClick={sendWhatsApp}>
                     WhatsApp Enviar pedido
                   </button>
@@ -3328,6 +3559,53 @@ Gracias
         >
           🛒 {cart.length}
         </button>
+      )}
+
+      {checkoutModalOpen && (
+        <div className="modal-overlay" onClick={closeCheckoutModal}>
+          <div className="checkout-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>Datos para continuar</h3>
+              <button className="modal-close-btn" onClick={closeCheckoutModal} disabled={checkoutLoading}>
+                ×
+              </button>
+            </div>
+
+            <p>
+              Completa estos datos para registrar tu pedido y continuar al pago seguro con Mercado Pago.
+            </p>
+
+            <input
+              type="text"
+              placeholder="Nombre completo"
+              value={checkoutForm.name}
+              onChange={(e) => setCheckoutForm((prev) => ({ ...prev, name: e.target.value }))}
+              disabled={checkoutLoading}
+            />
+
+            <input
+              type="tel"
+              inputMode="tel"
+              placeholder="WhatsApp con lada"
+              value={checkoutForm.phone}
+              onChange={(e) => setCheckoutForm((prev) => ({ ...prev, phone: e.target.value }))}
+              disabled={checkoutLoading}
+            />
+
+            <div className="checkout-total">
+              Total a pagar: ${formatMoney(total)} MXN
+            </div>
+
+            <div className="modal-actions">
+              <button className="secondary-btn" onClick={closeCheckoutModal} disabled={checkoutLoading}>
+                Cancelar
+              </button>
+              <button className="mercadopago-btn" onClick={startMercadoPagoCheckout} disabled={checkoutLoading}>
+                {checkoutLoading ? "Creando pago..." : "Continuar al pago"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedProductGroup && (
