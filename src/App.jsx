@@ -26,6 +26,13 @@ const ORDER_SENT_KEY = "vaStyleOrderSent";
 const LAST_ADVISOR_KEY = "vaStyleLastAdvisor";
 const ADMIN_SESSION_KEY = "vaStyleAdminSession";
 
+const GA_MEASUREMENT_ID = "G-TP0P6637D2";
+
+function trackEvent(eventName, params = {}) {
+  if (typeof window === "undefined" || typeof window.gtag !== "function") return;
+  window.gtag("event", eventName, params);
+}
+
 function getCleanPrice(value) {
   if (value === null || value === undefined) return 0;
 
@@ -67,6 +74,157 @@ function getSizeOptions(value) {
 
 function normalizeCategory(value) {
   return value === "Tenis" ? "Calzado" : value;
+}
+
+function getDefaultShippingFactor(category) {
+  const normalizedCategory = normalizeCategory(category);
+
+  switch (normalizedCategory) {
+    case "Muñequera":
+      return 0.2;
+    case "Carteras":
+      return 0.3;
+    case "Mochilas":
+      return 1.5;
+    case "Crossbody":
+    case "Bolsas":
+    case "Hombre":
+    case "Calzado":
+      return 1;
+    case "Maleta":
+      return 4;
+    default:
+      return 1;
+  }
+}
+
+function getShippingCost(units) {
+  const safeUnits = Number(units) || 0;
+
+  if (safeUnits <= 0) return 0;
+  if (safeUnits <= 12) return 400;
+  if (safeUnits <= 30) return 550;
+  if (safeUnits <= 42) return 950;
+  if (safeUnits <= 60) return 1100;
+
+  return null;
+}
+
+function getServiceFee(amount) {
+  const baseAmount = getCleanPrice(amount);
+  if (baseAmount <= 0) return 0;
+
+  return Math.min(Math.round(baseAmount * 0.05 + 4), 100);
+}
+
+function getItemShippingFactor(item) {
+  const directFactor = Number(item?.shippingFactor);
+  const databaseFactor = Number(item?.shipping_factor);
+
+  if (Number.isFinite(directFactor) && directFactor > 0) return directFactor;
+  if (Number.isFinite(databaseFactor) && databaseFactor > 0) return databaseFactor;
+
+  return getDefaultShippingFactor(item?.category);
+}
+
+function normalizeCartItems(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .filter(Boolean)
+    .map((item) => ({
+      ...item,
+      price: getCleanPrice(item?.price || item?.originalPrice || 0),
+      originalPrice: getCleanPrice(item?.originalPrice || item?.price || 0),
+      discountPercent: getDiscountPercent(item?.discountPercent || item?.discount_percent),
+      shippingFactor: getItemShippingFactor(item),
+    }));
+}
+
+
+function getProductInfo(product) {
+  const rawName = String(product?.name || "").trim().toUpperCase();
+  const parts = rawName.split(/\s+/).filter(Boolean);
+  const firstPart = parts[0] || rawName;
+  const looksLikeCode = /^[A-Z]*\d+[A-Z0-9-]*$/.test(firstPart);
+  const code = looksLikeCode ? firstPart : rawName;
+  const color = looksLikeCode ? parts.slice(1).join(" ") : "";
+
+  return {
+    code,
+    color: color || "COLOR / VARIANTE",
+  };
+}
+
+function buildGroupedProducts(productList) {
+  const groups = new Map();
+
+  productList.forEach((product) => {
+    const info = getProductInfo(product);
+    const key = [info.code, product.brand || "", product.category || "", product.price || ""].join("|");
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        id: key,
+        code: info.code,
+        name: info.code,
+        brand: product.brand || "",
+        category: product.category,
+        price: product.price,
+        discountPercent: product.discountPercent,
+        shippingFactor: getItemShippingFactor(product),
+        created_at: product.created_at,
+        image: product.image,
+        sizes: product.sizes || "",
+        variants: [],
+      });
+    }
+
+    const group = groups.get(key);
+    group.variants.push({
+      ...product,
+      modelCode: info.code,
+      variantColor: info.color,
+    });
+
+    if (new Date(product.created_at || 0) > new Date(group.created_at || 0)) {
+      group.created_at = product.created_at;
+      group.image = product.image;
+    }
+  });
+
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    variants: group.variants.sort((a, b) =>
+      String(a.variantColor || a.name).localeCompare(String(b.variantColor || b.name), "es", {
+        numeric: true,
+        sensitivity: "base",
+      })
+    ),
+  }));
+}
+
+function getCartSummary(cartItems) {
+  const summary = new Map();
+
+  cartItems.forEach((item) => {
+    const key = [
+      item.modelCode || item.name,
+      item.variantColor || "",
+      item.brand || "",
+      item.selectedSize || "",
+      item.discountPercent || "",
+      item.price || "",
+    ].join("|");
+
+    if (!summary.has(key)) {
+      summary.set(key, { ...item, quantity: 0 });
+    }
+
+    summary.get(key).quantity += 1;
+  });
+
+  return Array.from(summary.values());
 }
 
 function compressImage(file, maxWidth = 1200, quality = 0.78) {
@@ -160,7 +318,7 @@ export default function App() {
   const [cart, setCart] = useState(() => {
     try {
       if (typeof window === "undefined") return [];
-      return JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]");
+      return normalizeCartItems(JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]"));
     } catch {
       return [];
     }
@@ -209,6 +367,10 @@ export default function App() {
   });
 
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedGallery, setSelectedGallery] = useState([]);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [selectedProductGroup, setSelectedProductGroup] = useState(null);
+  const [variantQuantities, setVariantQuantities] = useState({});
   const [imageZoom, setImageZoom] = useState(1);
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
 
@@ -229,6 +391,7 @@ export default function App() {
     discount_percent: "",
     isNewArrival: false,
     precio_mayorista: "",
+    shipping_factor: "1",
     imageFile: null,
     image_url: "",
   });
@@ -237,6 +400,26 @@ export default function App() {
     fetchProducts();
     fetchReviews();
     fetchShowroomArrivals();
+
+    if (typeof window === "undefined") return;
+
+    window.dataLayer = window.dataLayer || [];
+    window.gtag =
+      window.gtag ||
+      function gtag() {
+        window.dataLayer.push(arguments);
+      };
+
+    if (!document.getElementById("google-analytics-script")) {
+      const script = document.createElement("script");
+      script.id = "google-analytics-script";
+      script.async = true;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+      document.head.appendChild(script);
+    }
+
+    window.gtag("js", new Date());
+    window.gtag("config", GA_MEASUREMENT_ID);
   }, []);
 
   useEffect(() => {
@@ -245,6 +428,12 @@ export default function App() {
 
   useEffect(() => {
     setCurrentPage(1);
+
+    if (category) {
+      trackEvent("select_category", {
+        category,
+      });
+    }
   }, [category, searchTerm]);
 
   useEffect(() => {
@@ -276,6 +465,7 @@ export default function App() {
         isNewArrival: Boolean(p.is_new_arrival),
         created_at: p.created_at,
         price: Number(p.wholesale_price) || 0,
+        shippingFactor: Number(p.shipping_factor) || getDefaultShippingFactor(p.category),
         image: p.image_url,
       }))
     );
@@ -338,17 +528,33 @@ export default function App() {
     });
   });
 
-  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / PRODUCTS_PER_PAGE));
+  const groupedProducts = buildGroupedProducts(sortedProducts);
+  const totalPages = Math.max(1, Math.ceil(groupedProducts.length / PRODUCTS_PER_PAGE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
-  const paginatedProducts = sortedProducts.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
+  const paginatedProductGroups = groupedProducts.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
+  const cartSummary = getCartSummary(cart);
 
   const subtotal = cart
     .map((item) => getCleanPrice(item.price))
     .reduce((sum, price) => sum + price, 0);
 
   const volumeDiscount = cart.length >= 40 ? Math.round(subtotal * 0.05) : 0;
-  const total = Math.max(subtotal - volumeDiscount, 0);
+
+  const shippingUnits = cart
+    .map((item) => getItemShippingFactor(item))
+    .reduce((sum, factor) => sum + factor, 0);
+
+  const shippingCost = getShippingCost(shippingUnits);
+  const needsShippingQuote = shippingCost === null;
+
+  const totalBeforeService = needsShippingQuote
+    ? Math.max(subtotal - volumeDiscount, 0)
+    : Math.max(subtotal - volumeDiscount + shippingCost, 0);
+
+  const serviceFee = needsShippingQuote ? 0 : getServiceFee(totalBeforeService);
+  const shippingAndPaymentCost = needsShippingQuote ? null : shippingCost + serviceFee;
+  const total = totalBeforeService + serviceFee;
 
   function showToast(message) {
     setToast(message);
@@ -380,24 +586,159 @@ export default function App() {
         originalPrice: getCleanPrice(product.price),
         discountPercent: getDiscountPercent(product.discountPercent),
         price: getFinalPrice(product),
+        shippingFactor: getItemShippingFactor(product),
       },
     ]);
+
+    trackEvent("add_to_cart", {
+      item_id: product.modelCode || product.name,
+      item_name: product.name,
+      item_category: product.category,
+      value: getFinalPrice(product),
+      currency: "MXN",
+    });
 
     showToast("Producto agregado al carrito ✅");
   }
 
-  function openImage(product) {
-    setSelectedProduct(product);
+  function openProductGroup(group) {
+    setSelectedProductGroup(group);
+    setVariantQuantities({});
+    trackEvent("view_product_group", {
+      item_id: group.code,
+      item_name: group.name,
+      item_category: group.category,
+      variants: group.variants?.length || 0,
+    });
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeProductGroup() {
+    setSelectedProductGroup(null);
+    setVariantQuantities({});
+    document.body.style.overflow = "auto";
+  }
+
+  function updateVariantQuantity(productId, nextQuantity) {
+    const safeQuantity = Math.max(0, Number(nextQuantity) || 0);
+
+    setVariantQuantities((prev) => ({
+      ...prev,
+      [productId]: safeQuantity,
+    }));
+  }
+
+  function addVariantsToCart(group) {
+    const itemsToAdd = [];
+
+    group.variants.forEach((variant) => {
+      const quantity = Number(variantQuantities[variant.id] || 0);
+      if (quantity <= 0) return;
+
+      const sizeOptions = getSizeOptions(variant.sizes);
+      const selectedSize = variant.category === "Calzado" ? selectedSizes[variant.id] : "";
+
+      if (variant.category === "Calzado") {
+        if (!sizeOptions.length) {
+          alert(`Este calzado todavía no tiene tallas registradas: ${variant.name}`);
+          return;
+        }
+
+        if (!selectedSize) {
+          alert(`Selecciona la talla para ${variant.name}.`);
+          return;
+        }
+      }
+
+      for (let i = 0; i < quantity; i++) {
+        itemsToAdd.push({
+          ...variant,
+          selectedSize,
+          originalPrice: getCleanPrice(variant.price),
+          discountPercent: getDiscountPercent(variant.discountPercent),
+          price: getFinalPrice(variant),
+          shippingFactor: getItemShippingFactor(variant),
+        });
+      }
+    });
+
+    if (!itemsToAdd.length) {
+      alert("Elige al menos una pieza antes de agregar al carrito.");
+      return;
+    }
+
+    setCart((prevCart) => [...prevCart, ...itemsToAdd]);
+
+    trackEvent("add_variants_to_cart", {
+      item_id: group.code,
+      item_name: group.name,
+      item_category: group.category,
+      quantity: itemsToAdd.length,
+      value: itemsToAdd.reduce((sum, item) => sum + getFinalPrice(item), 0),
+      currency: "MXN",
+    });
+
+    showToast("Colores agregados al carrito ✅");
+    closeProductGroup();
+  }
+
+  function openImage(product, gallery = []) {
+    const safeGallery = Array.isArray(gallery) && gallery.length ? gallery : [product];
+    const currentIndex = Math.max(
+      0,
+      safeGallery.findIndex((item) => item.id === product.id)
+    );
+
+    setSelectedGallery(safeGallery);
+    setSelectedImageIndex(currentIndex);
+    setSelectedProduct(safeGallery[currentIndex] || product);
     setImageZoom(1);
     setImagePosition({ x: 0, y: 0 });
+    trackEvent("view_item", {
+      item_id: product.modelCode || product.name,
+      item_name: product.name,
+      item_category: product.category,
+      value: getFinalPrice(product),
+      currency: "MXN",
+    });
     document.body.style.overflow = "hidden";
   }
 
   function closeImage() {
     setSelectedProduct(null);
+    setSelectedGallery([]);
+    setSelectedImageIndex(0);
     setImageZoom(1);
     setImagePosition({ x: 0, y: 0 });
     document.body.style.overflow = "auto";
+  }
+
+  function goToGalleryImage(nextIndex) {
+    if (!selectedGallery.length) return;
+
+    const safeIndex = (nextIndex + selectedGallery.length) % selectedGallery.length;
+    const nextProduct = selectedGallery[safeIndex];
+
+    setSelectedImageIndex(safeIndex);
+    setSelectedProduct(nextProduct);
+    setImageZoom(1);
+    setImagePosition({ x: 0, y: 0 });
+
+    trackEvent("view_item", {
+      item_id: nextProduct.modelCode || nextProduct.name,
+      item_name: nextProduct.name,
+      item_category: nextProduct.category,
+      value: getFinalPrice(nextProduct),
+      currency: "MXN",
+    });
+  }
+
+  function nextGalleryImage() {
+    goToGalleryImage(selectedImageIndex + 1);
+  }
+
+  function previousGalleryImage() {
+    goToGalleryImage(selectedImageIndex - 1);
   }
 
   function toggleZoom() {
@@ -415,18 +756,42 @@ export default function App() {
     dragRef.current = {
       moved: false,
       startTime: Date.now(),
+      startTouchX: e.touches[0].clientX,
+      startTouchY: e.touches[0].clientY,
+      lastTouchX: e.touches[0].clientX,
+      lastTouchY: e.touches[0].clientY,
     };
   }
 
   function handleTouchMove(e) {
-    if (!dragRef.current) return;
+    if (!dragRef.current || e.touches.length !== 1) return;
 
-    dragRef.current.moved = true;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - dragRef.current.startTouchX;
+    const deltaY = touch.clientY - dragRef.current.startTouchY;
+
+    dragRef.current.moved = Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8;
+    dragRef.current.lastTouchX = touch.clientX;
+    dragRef.current.lastTouchY = touch.clientY;
   }
 
   function handleTouchEnd() {
     const now = Date.now();
     const wasDragging = dragRef.current?.moved;
+    const deltaX = (dragRef.current?.lastTouchX || 0) - (dragRef.current?.startTouchX || 0);
+    const deltaY = (dragRef.current?.lastTouchY || 0) - (dragRef.current?.startTouchY || 0);
+    const isHorizontalSwipe = Math.abs(deltaX) > 55 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4;
+
+    if (imageZoom === 1 && selectedGallery.length > 1 && isHorizontalSwipe) {
+      if (deltaX < 0) {
+        nextGalleryImage();
+      } else {
+        previousGalleryImage();
+      }
+      lastTapRef.current = 0;
+      dragRef.current = null;
+      return;
+    }
 
     if (!wasDragging && now - lastTapRef.current < 320) {
       toggleZoom();
@@ -492,6 +857,7 @@ export default function App() {
       discount_percent: "",
       isNewArrival: false,
       precio_mayorista: "",
+      shipping_factor: "1",
       imageFile: null,
       image_url: "",
     });
@@ -509,6 +875,7 @@ export default function App() {
       discount_percent: product.discountPercent || "",
       isNewArrival: Boolean(product.isNewArrival),
       precio_mayorista: product.price,
+      shipping_factor: String(product.shippingFactor || getDefaultShippingFactor(product.category)),
       imageFile: null,
       image_url: product.image,
     });
@@ -600,6 +967,7 @@ export default function App() {
           discount_percent: getDiscountPercent(newProduct.discount_percent),
           is_new_arrival: Boolean(newProduct.isNewArrival),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
+          shipping_factor: Number(newProduct.shipping_factor) || getDefaultShippingFactor(newProduct.category),
           image_url: publicUrl,
         })
         .eq("id", editingProduct.id);
@@ -615,6 +983,7 @@ export default function App() {
           discount_percent: getDiscountPercent(newProduct.discount_percent),
           is_new_arrival: Boolean(newProduct.isNewArrival),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
+          shipping_factor: Number(newProduct.shipping_factor) || getDefaultShippingFactor(newProduct.category),
           image_url: publicUrl,
         },
       ]);
@@ -638,6 +1007,7 @@ export default function App() {
       discount_percent: "",
       isNewArrival: false,
       precio_mayorista: "",
+      shipping_factor: "1",
       imageFile: null,
       image_url: "",
     });
@@ -719,6 +1089,7 @@ export default function App() {
           discount_percent: discountPercent,
           is_new_arrival: isNewArrival,
           wholesale_price: price,
+          shipping_factor: getDefaultShippingFactor(bulkUpload.category),
           image_url: publicUrl,
         },
       ]);
@@ -990,11 +1361,17 @@ export default function App() {
 
     const isAdditionalOrder = localStorage.getItem(ORDER_SENT_KEY) === "true";
 
-    const productsText = cart
-      .map(
-        (item, index) =>
-          `${index + 1}. ${item.name}${item.brand ? ` / ${item.brand}` : ""}${item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""}${item.discountPercent ? ` / Desc. ${item.discountPercent}%` : ""} - $${formatMoney(item.price)} MXN`
-      )
+    const productsText = getCartSummary(cart)
+      .map((item, index) => {
+        const modelText = item.modelCode || item.name;
+        const colorText = item.variantColor ? ` / Color: ${item.variantColor}` : "";
+        const brandText = item.brand ? ` / ${item.brand}` : "";
+        const sizeText = item.selectedSize ? ` / Talla: ${item.selectedSize}` : "";
+        const discountText = item.discountPercent ? ` / Desc. ${item.discountPercent}%` : "";
+        const quantityText = item.quantity > 1 ? ` x${item.quantity}` : "";
+
+        return `${index + 1}. ${modelText}${colorText}${brandText}${sizeText}${discountText}${quantityText} - $${formatMoney(item.price * item.quantity)} MXN`;
+      })
       .join("\n");
 
     const message = `
@@ -1007,10 +1384,23 @@ PEDIDO
 ${productsText}
 
 SUBTOTAL: $${formatMoney(subtotal)} MXN
-${volumeDiscount > 0 ? `DESCUENTO MAYOREO 5%: -$${formatMoney(volumeDiscount)} MXN\n` : ""}TOTAL FINAL: $${formatMoney(total)} MXN
+${volumeDiscount > 0 ? `DESCUENTO MAYOREO 5%: -$${formatMoney(volumeDiscount)} MXN
+` : ""}ENVÍO Y PAGO SEGURO: ${needsShippingQuote ? "POR COTIZAR" : `$${formatMoney(shippingAndPaymentCost)} MXN`}
+TOTAL FINAL: ${needsShippingQuote ? "POR CONFIRMAR" : `$${formatMoney(total)} MXN`}
 
 Gracias
 `;
+
+    trackEvent("send_whatsapp_order", {
+      items: cart.length,
+      subtotal,
+      discount: volumeDiscount,
+      shipping_units: shippingUnits,
+      shipping_cost: shippingCost || 0,
+      service_fee: serviceFee,
+      value: total,
+      currency: "MXN",
+    });
 
     localStorage.setItem(ORDER_SENT_KEY, "true");
 
@@ -1596,16 +1986,33 @@ Gracias
 
         .cart-content {
           min-height: 240px;
-          padding: 28px 18px;
+          padding: 18px;
           text-align: center;
           color: #6f625f;
         }
 
+        .cart-items-scroll {
+          max-height: 235px;
+          overflow-y: auto;
+          padding-right: 6px;
+          margin-bottom: 12px;
+          -webkit-overflow-scrolling: touch;
+        }
+
         .cart-item {
           text-align: left;
-          padding: 9px 0;
+          padding: 8px 0;
           border-bottom: 1px solid #f1e5df;
-          font-size: 14px;
+          font-size: 13px;
+          line-height: 1.25;
+          color: #4f403b;
+          font-weight: 800;
+        }
+
+        .cart-item-price {
+          color: #c94462;
+          font-weight: 950;
+          margin-top: 3px;
         }
 
         .cart-total {
@@ -1882,6 +2289,134 @@ Gracias
           display: none;
         }
 
+
+        .variant-count {
+          position: absolute;
+          left: 8px;
+          top: 8px;
+          background: rgba(255,255,255,.95);
+          color: #7a4050;
+          border: 1px solid #eadbd3;
+          border-radius: 999px;
+          padding: 5px 8px;
+          font-size: 11px;
+          font-weight: 950;
+          z-index: 2;
+          box-shadow: 0 6px 14px rgba(0,0,0,.10);
+        }
+
+        .variants-modal-card {
+          width: min(920px, 100%);
+          max-height: 92vh;
+          overflow-y: auto;
+          background: white;
+          border-radius: 18px;
+          border: 1px solid #eadbd3;
+          box-shadow: 0 18px 45px rgba(0,0,0,.28);
+          padding: 18px;
+        }
+
+        .variants-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .variants-header h3 {
+          margin: 0 0 4px;
+          color: #7a4050;
+          font-family: Georgia, serif;
+          font-size: 26px;
+        }
+
+        .variants-header p {
+          margin: 0;
+          color: #6b403e;
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .variants-scroll {
+          display: flex;
+          gap: 14px;
+          overflow-x: auto;
+          padding: 4px 2px 12px;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .variant-card {
+          min-width: 220px;
+          max-width: 220px;
+          background: #fffaf7;
+          border: 1px solid #eadbd3;
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 0 8px 20px rgba(90,50,30,.10);
+          scroll-snap-align: start;
+        }
+
+        .variant-card img {
+          width: 100%;
+          height: 230px;
+          object-fit: contain;
+          background: #fff4ea;
+          display: block;
+          cursor: zoom-in;
+        }
+
+        .variant-body {
+          padding: 12px;
+          text-align: center;
+        }
+
+        .variant-color {
+          color: #2f2927;
+          font-size: 16px;
+          font-weight: 950;
+          margin-bottom: 5px;
+        }
+
+        .qty-control {
+          display: grid;
+          grid-template-columns: 42px 1fr 42px;
+          gap: 8px;
+          align-items: center;
+          margin-top: 10px;
+        }
+
+        .qty-control button {
+          height: 38px;
+          border-radius: 999px;
+          background: #c94462;
+          color: white;
+          font-size: 20px;
+          line-height: 1;
+        }
+
+        .qty-control span {
+          height: 38px;
+          border-radius: 999px;
+          border: 1px solid #eadbd3;
+          background: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #7a4050;
+          font-weight: 950;
+        }
+
+        .variants-footer {
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+          flex-wrap: wrap;
+          border-top: 1px solid #eadbd3;
+          padding-top: 14px;
+        }
+
         .toast {
           position: fixed;
           left: 50%;
@@ -1902,7 +2437,7 @@ Gracias
           position: fixed;
           inset: 0;
           background: rgba(0,0,0,.88);
-          z-index: 2000;
+          z-index: 9999;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1911,6 +2446,8 @@ Gracias
         }
 
         .image-modal-content {
+          position: relative;
+          z-index: 10000;
           width: 100%;
           height: 100%;
           display: flex;
@@ -1935,6 +2472,7 @@ Gracias
 
         .image-modal-title {
           position: fixed;
+          z-index: 10001;
           left: 18px;
           bottom: 18px;
           right: 18px;
@@ -1944,6 +2482,45 @@ Gracias
           font-size: 14px;
           text-shadow: 0 2px 8px rgba(0,0,0,.5);
           pointer-events: none;
+        }
+
+        .gallery-nav-btn {
+          position: fixed;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 46px;
+          height: 46px;
+          border-radius: 999px;
+          background: rgba(255,255,255,.92);
+          color: #7a4050;
+          font-size: 30px;
+          line-height: 1;
+          font-weight: 900;
+          z-index: 10002;
+          box-shadow: 0 8px 22px rgba(0,0,0,.25);
+        }
+
+        .gallery-nav-btn.left {
+          left: 16px;
+        }
+
+        .gallery-nav-btn.right {
+          right: 16px;
+        }
+
+        .image-counter {
+          position: fixed;
+          top: 18px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 10002;
+          background: rgba(255,255,255,.92);
+          color: #7a4050;
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 13px;
+          font-weight: 900;
+          box-shadow: 0 8px 22px rgba(0,0,0,.20);
         }
 
         .close-modal {
@@ -1957,7 +2534,7 @@ Gracias
           color: #7a4050;
           font-size: 22px;
           font-weight: 900;
-          z-index: 2100;
+          z-index: 10002;
           box-shadow: 0 8px 22px rgba(0,0,0,.25);
         }
 
@@ -2204,7 +2781,16 @@ Gracias
 
           .cart-content {
             min-height: 150px;
-            padding: 16px 12px;
+            padding: 13px 12px;
+          }
+
+          .cart-items-scroll {
+            max-height: 225px;
+          }
+
+          .cart-item {
+            font-size: 12px;
+            padding: 7px 0;
           }
 
           .cart-total {
@@ -2284,6 +2870,30 @@ Gracias
             font-weight: 800;
             box-shadow: 0 8px 22px rgba(0,0,0,.24);
             z-index: 999;
+          }
+
+
+          .variants-modal-card {
+            padding: 14px;
+            border-radius: 16px;
+          }
+
+          .variants-header h3 {
+            font-size: 22px;
+          }
+
+          .variant-card {
+            min-width: 78vw;
+            max-width: 78vw;
+          }
+
+          .variant-card img {
+            height: 280px;
+          }
+
+          .variants-footer .pink-btn,
+          .variants-footer .cart-btn {
+            width: 100%;
           }
 
           .image-modal {
@@ -2407,7 +3017,7 @@ Gracias
               }}
             />
             <div className="results-count">
-              {filtered.length} producto{filtered.length === 1 ? "" : "s"}
+              {groupedProducts.length} modelo{groupedProducts.length === 1 ? "" : "s"}
             </div>
 
             <select
@@ -2431,79 +3041,40 @@ Gracias
           ) : (
             <>
               <div className="grid">
-                {paginatedProducts.map((p) => (
-              <div className="card" key={p.id}>
-                <img
-                  src={p.image}
-                  alt={p.name}
-                  onClick={() => openImage(p)}
-                />
+                {paginatedProductGroups.map((group) => (
+                  <div className="card" key={group.id}>
+                    {group.variants.length > 1 && (
+                      <div className="variant-count">{group.variants.length} colores</div>
+                    )}
 
-                <div className="card-body">
-                  <h3>{p.name}</h3>
-                  {p.brand && <div className="brand">{p.brand}</div>}
-                  {getDiscountPercent(p.discountPercent) > 0 && (
-                    <div className="discount-badge">-{getDiscountPercent(p.discountPercent)}%</div>
-                  )}
+                    {getDiscountPercent(group.discountPercent) > 0 && (
+                      <div className="discount-badge">-{getDiscountPercent(group.discountPercent)}%</div>
+                    )}
 
-                  {getDiscountPercent(p.discountPercent) > 0 ? (
-                    <div className="price-block">
-                      <span className="old-price">${formatMoney(p.price)} MXN</span>
-                      <div className="sale-price">${formatMoney(getFinalPrice(p))} MXN</div>
-                    </div>
-                  ) : (
-                    <div className="price">${formatMoney(p.price)} MXN</div>
-                  )}
+                    <img
+                      src={group.image}
+                      alt={group.name}
+                      onClick={() => openProductGroup(group)}
+                    />
 
-                  {p.category === "Calzado" && (
-                    <select
-                      className="size-select"
-                      value={selectedSizes[p.id] || ""}
-                      onChange={(e) =>
-                        setSelectedSizes((prev) => ({
-                          ...prev,
-                          [p.id]: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Talla</option>
-                      {getSizeOptions(p.sizes).map((size) => (
-                        <option key={size} value={size}>{size}</option>
-                      ))}
-                    </select>
-                  )}
+                    <div className="card-body">
+                      <h3>{group.name}</h3>
+                      {group.brand && <div className="brand">{group.brand}</div>}
 
-                  <button className="add" onClick={() => addToCart(p)}>
-                    Agregar 🛒
-                  </button>
+                      {getDiscountPercent(group.discountPercent) > 0 ? (
+                        <div className="price-block">
+                          <span className="old-price">${formatMoney(group.price)} MXN</span>
+                          <div className="sale-price">${formatMoney(getFinalPrice(group))} MXN</div>
+                        </div>
+                      ) : (
+                        <div className="price">${formatMoney(group.price)} MXN</div>
+                      )}
 
-                  {showAdmin && (
-                    <div style={{ marginTop: "10px" }}>
-                      <button
-                        className="pink-btn"
-                        style={{ width: "100%", marginBottom: "8px" }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startEditProduct(p);
-                        }}
-                      >
-                        Editar producto
-                      </button>
-
-
-                      <button
-                        className="delete-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteProduct(p.id);
-                        }}
-                      >
-                        Borrar producto
+                      <button className="add" onClick={() => openProductGroup(group)}>
+                        Ver colores 🛍️
                       </button>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
                 ))}
               </div>
 
@@ -2564,30 +3135,32 @@ Gracias
                 </>
               ) : (
                 <>
-                  {cart.map((item, index) => (
-                    <div key={index} className="cart-item">
-                      {item.name}{item.brand ? ` / ${item.brand}` : ""}{item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""}{item.discountPercent ? ` / Desc. ${item.discountPercent}%` : ""} — ${formatMoney(item.price)} MXN
-                    </div>
-                  ))}
-
-                  <div className="cart-total">
-                    {volumeDiscount > 0 ? (
-                      <>
-                        <div className="subtotal-row">Subtotal: ${formatMoney(subtotal)} MXN</div>
-                        <div className="discount-row">Descuento mayoreo 5%: -${formatMoney(volumeDiscount)} MXN</div>
-                        TOTAL FINAL<br />
-                        ${formatMoney(total)} MXN
-                      </>
-                    ) : (
-                      <>
-                        TOTAL DEL PEDIDO<br />
-                        ${formatMoney(total)} MXN
-                      </>
-                    )}
+                  <div className="cart-items-scroll">
+                    {[...cartSummary].reverse().map((item, index) => (
+                      <div key={index} className="cart-item">
+                        <div>
+                          {item.modelCode || item.name}{item.variantColor ? ` / ${item.variantColor}` : ""}{item.brand ? ` / ${item.brand}` : ""}{item.selectedSize ? ` / Talla: ${item.selectedSize}` : ""}{item.discountPercent ? ` / Desc. ${item.discountPercent}%` : ""}{item.quantity > 1 ? ` x${item.quantity}` : ""}
+                        </div>
+                        <div className="cart-item-price">${formatMoney(item.price * item.quantity)} MXN</div>
+                      </div>
+                    ))}
                   </div>
 
-                  <div className="shipping-note">
-                    📦 El envío se calcula según destino y cantidad de piezas al confirmar tu pedido.
+                  <div className="cart-total">
+                    <div className="subtotal-row">Subtotal: ${formatMoney(subtotal)} MXN</div>
+
+                    {volumeDiscount > 0 && (
+                      <div className="discount-row">
+                        Descuento mayoreo 5%: -${formatMoney(volumeDiscount)} MXN
+                      </div>
+                    )}
+
+                    <div className="subtotal-row">
+                      Envío y pago seguro: {needsShippingQuote ? "Por cotizar" : `$${formatMoney(shippingAndPaymentCost)} MXN`}
+                    </div>
+
+                    TOTAL FINAL<br />
+                    {needsShippingQuote ? "Por confirmar" : `$${formatMoney(total)} MXN`}
                   </div>
 
                   {cart.length < 6 && (
@@ -2757,9 +3330,127 @@ Gracias
         </button>
       )}
 
+      {selectedProductGroup && (
+        <div className="modal-overlay" onClick={closeProductGroup}>
+          <div className="variants-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="variants-header">
+              <div>
+                <h3>{selectedProductGroup.code}</h3>
+                <p>{selectedProductGroup.brand} · ${formatMoney(getFinalPrice(selectedProductGroup))} MXN</p>
+                <p>Desliza a los lados y elige cuántas piezas quieres de cada color.</p>
+              </div>
+              <button className="modal-close-btn" onClick={closeProductGroup}>×</button>
+            </div>
+
+            <div className="variants-scroll">
+              {selectedProductGroup.variants.map((variant) => (
+                <div className="variant-card" key={variant.id}>
+                  <img
+                    src={variant.image}
+                    alt={variant.name}
+                    onClick={() => openImage(variant, selectedProductGroup.variants)}
+                  />
+
+                  <div className="variant-body">
+                    <div className="variant-color">{variant.variantColor}</div>
+                    {variant.brand && <div className="brand">{variant.brand}</div>}
+
+                    {getDiscountPercent(variant.discountPercent) > 0 ? (
+                      <div className="price-block">
+                        <span className="old-price">${formatMoney(variant.price)} MXN</span>
+                        <div className="sale-price">${formatMoney(getFinalPrice(variant))} MXN</div>
+                      </div>
+                    ) : (
+                      <div className="price">${formatMoney(variant.price)} MXN</div>
+                    )}
+
+                    {variant.category === "Calzado" && (
+                      <select
+                        className="size-select"
+                        value={selectedSizes[variant.id] || ""}
+                        onChange={(e) =>
+                          setSelectedSizes((prev) => ({
+                            ...prev,
+                            [variant.id]: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Talla</option>
+                        {getSizeOptions(variant.sizes).map((size) => (
+                          <option key={size} value={size}>{size}</option>
+                        ))}
+                      </select>
+                    )}
+
+                    <div className="qty-control">
+                      <button onClick={() => updateVariantQuantity(variant.id, (variantQuantities[variant.id] || 0) - 1)}>−</button>
+                      <span>{variantQuantities[variant.id] || 0}</span>
+                      <button onClick={() => updateVariantQuantity(variant.id, (variantQuantities[variant.id] || 0) + 1)}>+</button>
+                    </div>
+
+                    {showAdmin && (
+                      <div style={{ marginTop: "10px" }}>
+                        <button
+                          className="pink-btn"
+                          style={{ width: "100%", marginBottom: "8px" }}
+                          onClick={() => startEditProduct(variant)}
+                        >
+                          Editar
+                        </button>
+
+                        <button
+                          className="delete-btn"
+                          onClick={() => deleteProduct(variant.id)}
+                        >
+                          Borrar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="variants-footer">
+              <button className="pink-btn" onClick={() => addVariantsToCart(selectedProductGroup)}>
+                Agregar selección 🛒
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedProduct && (
         <div className="image-modal" onClick={closeImage}>
           <button className="close-modal" onClick={closeImage}>×</button>
+
+          {selectedGallery.length > 1 && (
+            <>
+              <div className="image-counter">
+                {selectedImageIndex + 1} / {selectedGallery.length}
+              </div>
+              <button
+                className="gallery-nav-btn left"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  previousGalleryImage();
+                }}
+                aria-label="Imagen anterior"
+              >
+                ‹
+              </button>
+              <button
+                className="gallery-nav-btn right"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextGalleryImage();
+                }}
+                aria-label="Imagen siguiente"
+              >
+                ›
+              </button>
+            </>
+          )}
 
           <div
             className="image-modal-content"
@@ -2785,7 +3476,8 @@ Gracias
           </div>
 
           <div className="image-modal-title">
-            {selectedProduct.name}
+            {selectedProduct.modelCode || selectedProduct.name}
+            {selectedProduct.variantColor ? ` · ${selectedProduct.variantColor}` : ""}
           </div>
         </div>
       )}
@@ -2824,7 +3516,13 @@ Gracias
 
             <select
               value={newProduct.category}
-              onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+              onChange={(e) =>
+                setNewProduct({
+                  ...newProduct,
+                  category: e.target.value,
+                  shipping_factor: String(getDefaultShippingFactor(e.target.value)),
+                })
+              }
             >
               <option value="Bolsas">Bolsas</option>
               <option value="Carteras">Carteras</option>
@@ -2851,6 +3549,12 @@ Gracias
               placeholder="Precio mayorista"
               value={newProduct.precio_mayorista}
               onChange={(e) => setNewProduct({ ...newProduct, precio_mayorista: e.target.value })}
+            />
+
+            <input
+              placeholder="Factor de envío. Ej: cartera 0.3, bolsa 1, mochila 1.5, maleta chica 4"
+              value={newProduct.shipping_factor}
+              onChange={(e) => setNewProduct({ ...newProduct, shipping_factor: e.target.value })}
             />
 
             <input
