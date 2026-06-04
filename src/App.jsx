@@ -102,10 +102,10 @@ function getShippingCost(units) {
   const safeUnits = Number(units) || 0;
 
   if (safeUnits <= 0) return 0;
-  if (safeUnits <= 12) return 400;
-  if (safeUnits <= 30) return 550;
-  if (safeUnits <= 42) return 950;
-  if (safeUnits <= 60) return 1100;
+  if (safeUnits <= 12) return 0;
+  if (safeUnits <= 30) return 0;
+  if (safeUnits <= 42) return 0;
+  if (safeUnits <= 60) return 0;
 
   return null;
 }
