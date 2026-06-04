@@ -25,6 +25,7 @@ const CART_STORAGE_KEY = "vaStyleCart";
 const ORDER_SENT_KEY = "vaStyleOrderSent";
 const LAST_ADVISOR_KEY = "vaStyleLastAdvisor";
 const ADMIN_SESSION_KEY = "vaStyleAdminSession";
+const TEST_FREE_SHIPPING = true;
 
 const GA_MEASUREMENT_ID = "G-TP0P6637D2";
 
@@ -62,6 +63,59 @@ function getFinalPrice(product) {
 function formatMoney(value) {
   return getCleanPrice(value).toLocaleString("es-MX");
 }
+function formatDate(value) {
+  if (!value) return "Sin fecha";
+
+  try {
+    return new Date(value).toLocaleString("es-MX", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  } catch {
+    return "Sin fecha";
+  }
+}
+
+function getOrderId(order) {
+  return order?.id || order?.order_id || order?.external_reference || "Sin ID";
+}
+
+function getOrderPaymentStatus(order) {
+  const status = String(order?.payment_status || order?.status || "pending").toLowerCase();
+
+  if (["paid", "approved", "pagado"].includes(status)) return "Pagado";
+  if (["pending", "pendiente", "in_process"].includes(status)) return "Pendiente";
+  if (["rejected", "cancelled", "failure", "failed"].includes(status)) return "Rechazado";
+
+  return status.toUpperCase();
+}
+
+function getOrderStatus(order) {
+  const rawStatus = order?.status || order?.order_status || order?.orderStatus || order?.fulfillment_status || "";
+  const normalizedStatus = String(rawStatus || "").toLowerCase();
+
+  if (!normalizedStatus) {
+    return getOrderPaymentStatus(order) === "Pagado" ? "Pagado" : "Pendiente";
+  }
+
+  const labels = {
+    pending: "Pendiente",
+    pendiente: "Pendiente",
+    paid: "Pagado",
+    pagado: "Pagado",
+    preparing: "Preparando",
+    preparando: "Preparando",
+    shipped: "Enviado",
+    enviado: "Enviado",
+    delivered: "Entregado",
+    entregado: "Entregado",
+  };
+
+  return labels[normalizedStatus] || rawStatus;
+}
+
+const ORDER_STATUS_OPTIONS = ["Pendiente", "Pagado", "Preparando", "Enviado", "Entregado"];
+
 
 function getSizeOptions(value) {
   if (!value) return [];
@@ -99,6 +153,8 @@ function getDefaultShippingFactor(category) {
 }
 
 function getShippingCost(units) {
+  if (TEST_FREE_SHIPPING) return 0;
+
   const safeUnits = Number(units) || 0;
 
   if (safeUnits <= 0) return 0;
@@ -111,6 +167,8 @@ function getShippingCost(units) {
 }
 
 function getServiceFee(amount) {
+  if (TEST_FREE_SHIPPING) return 0;
+
   const baseAmount = getCleanPrice(amount);
   if (baseAmount <= 0) return 0;
 
@@ -376,6 +434,9 @@ export default function App() {
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "" });
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [newOrderNotice, setNewOrderNotice] = useState("");
 
   const catalogRef = useRef(null);
   const aboutRef = useRef(null);
@@ -442,6 +503,33 @@ export default function App() {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (!showAdmin) return;
+
+    fetchOrders();
+
+    const channel = supabase
+      .channel("admin-orders-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        (payload) => {
+          fetchOrders();
+
+          if (payload.eventType === "INSERT") {
+            const customerName = payload.new?.customer_name || "Nuevo cliente";
+            setNewOrderNotice(`Nuevo pedido recibido: ${customerName}`);
+            showToast("Nuevo pedido recibido 🛍️");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [showAdmin]);
 
   useEffect(() => {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
@@ -519,6 +607,58 @@ export default function App() {
 
     setShowroomItems(data || []);
   }
+
+  async function fetchOrders() {
+    setOrdersLoading(true);
+
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("archived", false)
+      .order("created_at", { ascending: false });
+
+    setOrdersLoading(false);
+
+    if (error) {
+      console.log(error);
+      showToast("No se pudieron cargar los pedidos");
+      return;
+    }
+
+    setOrders(data || []);
+  }
+
+  async function updateOrderStatus(order, nextStatus) {
+    const orderId = getOrderId(order);
+    const normalizedStatus = String(nextStatus || "").toLowerCase();
+
+    const updateData = {
+      status: normalizedStatus,
+      archived: normalizedStatus === "entregado",
+    };
+
+    let result = await supabase
+      .from("orders")
+      .update(updateData)
+      .eq("id", orderId);
+
+    if (result.error && String(result.error.message || "").includes("status")) {
+      result = await supabase
+        .from("orders")
+        .update({ order_status: normalizedStatus, archived: normalizedStatus === "entregado" })
+        .eq("id", orderId);
+    }
+
+    if (result.error) {
+      alert(result.error.message);
+      console.log(result.error);
+      return;
+    }
+
+    showToast("Estado actualizado ✅");
+    fetchOrders();
+  }
+
 
   const approvedReviews = reviews.filter((review) => review.approved);
   const pendingReviews = reviews.filter((review) => !review.approved);
@@ -1420,6 +1560,7 @@ export default function App() {
         total,
         payment_method: "mercadopago",
         payment_status: "pending",
+        order_status: "pending",
       };
 
       const { data: orderData, error: orderError } = await supabase
@@ -2096,6 +2237,102 @@ Gracias
         .admin-check input {
           width: auto !important;
           margin: 0 !important;
+        }
+
+        .orders-header-note {
+          background: #fff4ea;
+          border: 1px solid #eadbd3;
+          border-radius: 12px;
+          padding: 12px;
+          color: #7a4050;
+          font-weight: 900;
+          text-align: center;
+          margin-bottom: 12px;
+        }
+
+        .new-order-notice {
+          background: #eaf8ef;
+          border: 1px solid #b9dfc7;
+          color: #285f38;
+        }
+
+        .orders-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .order-card {
+          background: #fffaf7;
+          border: 1px solid #eadbd3;
+          border-radius: 14px;
+          padding: 14px;
+          box-shadow: 0 7px 18px rgba(90,50,30,.08);
+        }
+
+        .order-card-top {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 10px;
+        }
+
+        .order-card strong {
+          color: #2f2927;
+          font-size: 15px;
+        }
+
+        .order-id {
+          color: #7a5c50;
+          font-size: 11px;
+          font-weight: 900;
+          word-break: break-all;
+        }
+
+        .order-total {
+          color: #c94462;
+          font-size: 18px;
+          font-weight: 950;
+          white-space: nowrap;
+        }
+
+        .order-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin: 10px 0;
+        }
+
+        .order-field {
+          background: white;
+          border: 1px solid #f1e4dd;
+          border-radius: 10px;
+          padding: 9px;
+          color: #5f4943;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .order-field span {
+          display: block;
+          color: #9b7568;
+          font-size: 10px;
+          font-weight: 950;
+          text-transform: uppercase;
+          margin-bottom: 3px;
+        }
+
+        .order-status-select {
+          width: 100%;
+          background: white;
+          border: 1px solid #eadbd3;
+          color: #7a4050;
+          border-radius: 10px;
+          padding: 11px;
+          font-size: 14px;
+          font-weight: 900;
+          outline: none;
         }
 
         .admin-review-list {
@@ -3189,6 +3426,7 @@ Gracias
           <button onClick={openAddProductModal}>➕ Agregar producto</button>
           <button onClick={openBulkUploadModal}>📦 Carga masiva</button>
           <button onClick={() => setAdminModal("showroom")}>✨ Showroom</button>
+          <button onClick={() => { setAdminModal("orders"); setNewOrderNotice(""); fetchOrders(); }}>🧾 Pedidos {orders.length ? `(${orders.length})` : ""}</button>
           <button onClick={() => setAdminModal("reviews")}>⭐ Reseñas ({pendingReviews.length})</button>
           <button className="logout-btn" onClick={closeAdminSession}>🚪 Cerrar sesión admin</button>
         </div>
@@ -4021,6 +4259,80 @@ Gracias
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showAdmin && adminModal === "orders" && (
+        <div className="modal-overlay" onClick={closeAdminModal}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>🧾 Pedidos</h3>
+              <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
+            </div>
+
+            {newOrderNotice && (
+              <div className="orders-header-note new-order-notice">{newOrderNotice}</div>
+            )}
+
+            <div className="orders-header-note">
+              {TEST_FREE_SHIPPING
+                ? "Modo prueba activo: envío y cargo de servicio en $0."
+                : "Pedidos registrados desde Mercado Pago y WhatsApp."}
+            </div>
+
+            <button className="pink-btn" style={{ width: "100%", marginBottom: "12px" }} onClick={fetchOrders}>
+              Actualizar pedidos
+            </button>
+
+            {ordersLoading ? (
+              <div className="bulk-note">Cargando pedidos...</div>
+            ) : orders.length === 0 ? (
+              <div className="bulk-note">Todavía no hay pedidos registrados.</div>
+            ) : (
+              <div className="orders-list">
+                {orders.map((order) => (
+                  <div className="order-card" key={getOrderId(order)}>
+                    <div className="order-card-top">
+                      <div>
+                        <strong>{order.customer_name || order.name || "Cliente sin nombre"}</strong>
+                        <div className="order-id">ID: {getOrderId(order)}</div>
+                      </div>
+                      <div className="order-total">${formatMoney(order.total)} MXN</div>
+                    </div>
+
+                    <div className="order-grid">
+                      <div className="order-field">
+                        <span>Teléfono</span>
+                        {order.customer_phone || order.phone || "Sin teléfono"}
+                      </div>
+                      <div className="order-field">
+                        <span>Pago</span>
+                        {getOrderPaymentStatus(order)}
+                      </div>
+                      <div className="order-field">
+                        <span>Estado pedido</span>
+                        {getOrderStatus(order)}
+                      </div>
+                      <div className="order-field">
+                        <span>Fecha</span>
+                        {formatDate(order.created_at)}
+                      </div>
+                    </div>
+
+                    <select
+                      className="order-status-select"
+                      value={getOrderStatus(order)}
+                      onChange={(e) => updateOrderStatus(order, e.target.value)}
+                    >
+                      {ORDER_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
