@@ -372,7 +372,7 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [showroomItems, setShowroomItems] = useState([]);
-  const [category, setCategory] = useState("Bolsas");
+  const [category, setCategory] = useState("Todas");
   const [cart, setCart] = useState(() => {
     try {
       if (typeof window === "undefined") return [];
@@ -417,9 +417,6 @@ export default function App() {
   });
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [showroomForm, setShowroomForm] = useState({
-    title: "",
-    codes: "",
-    description: "",
     imageFile: null,
     uploading: false,
   });
@@ -1374,16 +1371,6 @@ export default function App() {
   }
 
   async function saveShowroomArrival() {
-    if (!showroomForm.title.trim()) {
-      alert("Escribe el título del showroom.");
-      return;
-    }
-
-    if (!showroomForm.codes.trim()) {
-      alert("Escribe el código o códigos visibles.");
-      return;
-    }
-
     if (!showroomForm.imageFile) {
       alert("Selecciona una imagen para el showroom.");
       return;
@@ -1393,15 +1380,7 @@ export default function App() {
 
     try {
       const file = await compressImage(showroomForm.imageFile, 1600, 0.84);
-      const safeName = showroomForm.title
-        .trim()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9-_]/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "")
-        .toLowerCase();
-      const fileName = `${Date.now()}-${safeName || "showroom"}.jpg`;
+      const fileName = `${Date.now()}-showroom.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from("showroom-media")
@@ -1418,27 +1397,24 @@ export default function App() {
 
       const { error } = await supabase.from("showroom_arrivals").insert([
         {
-          title: showroomForm.title.trim().toUpperCase(),
-          codes: showroomForm.codes.trim().toUpperCase(),
-          description: showroomForm.description.trim(),
+          title: "SHOWROOM",
+          codes: "",
+          description: "",
           image_url: publicUrl,
         },
       ]);
 
       if (error) throw error;
 
-      alert("Showroom guardado correctamente");
+      alert("Imagen de showroom guardada correctamente");
       setShowroomForm({
-        title: "",
-        codes: "",
-        description: "",
         imageFile: null,
         uploading: false,
       });
       setAdminModal(null);
       fetchShowroomArrivals();
     } catch (error) {
-      alert(error.message || "No se pudo guardar el showroom.");
+      alert(error.message || "No se pudo guardar la imagen del showroom.");
       console.log(error);
       setShowroomForm((prev) => ({ ...prev, uploading: false }));
     }
@@ -1670,8 +1646,8 @@ ${productsText}
 
 SUBTOTAL: $${formatMoney(subtotal)} MXN
 ${volumeDiscount > 0 ? `DESCUENTO MAYOREO 5%: -$${formatMoney(volumeDiscount)} MXN
-` : ""}ENVÍO Y PAGO SEGURO: ${needsShippingQuote ? "POR COTIZAR" : `$${formatMoney(shippingAndPaymentCost)} MXN`}
-TOTAL FINAL: ${needsShippingQuote ? "POR CONFIRMAR" : `$${formatMoney(total)} MXN`}
+` : ""}ENVÍO: Se cotiza al confirmar el pedido con tu asesora.
+TOTAL FINAL: Por confirmar con tu asesora.
 
 Gracias
 `;
@@ -2075,7 +2051,15 @@ Gracias
           box-shadow: 0 8px 22px rgba(90,50,30,.08);
         }
 
-        .new-arrivals-section,
+        .new-arrivals-section {
+          margin: 16px 38px 0;
+          background: white;
+          border: 1px solid #eadbd3;
+          border-radius: 18px;
+          padding: 14px 18px 12px;
+          box-shadow: 0 8px 26px rgba(90,50,30,.10);
+        }
+
         .reviews-section {
           margin: 22px 38px 0;
           background: white;
@@ -2088,6 +2072,10 @@ Gracias
         .section-title-wrap {
           text-align: center;
           margin-bottom: 16px;
+        }
+
+        .new-arrivals-section .section-title-wrap {
+          margin-bottom: 9px;
         }
 
         .section-title-wrap h2 {
@@ -2105,52 +2093,44 @@ Gracias
         }
 
         .new-arrivals-grid {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(140px, 1fr));
-          gap: 14px;
+          display: flex;
+          gap: 12px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          padding: 0 28px 2px 2px;
+          scroll-snap-type: x proximity;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .new-arrivals-grid::-webkit-scrollbar {
+          height: 6px;
+        }
+
+        .new-arrivals-grid::-webkit-scrollbar-thumb {
+          background: rgba(201,68,98,.28);
+          border-radius: 999px;
         }
 
         .arrival-card {
-          background: #fffaf7;
-          border: 1px solid #eadbd3;
+          flex: 0 0 24%;
           border-radius: 14px;
           overflow: hidden;
           padding: 0;
-          box-shadow: 0 7px 18px rgba(90,50,30,.10);
+          scroll-snap-align: start;
+          background: transparent;
+          border: none;
+          box-shadow: none;
         }
 
         .arrival-card img {
           width: 100%;
-          height: 170px;
-          object-fit: contain;
+          aspect-ratio: 4 / 3;
+          height: auto;
+          object-fit: cover;
           display: block;
-          background: #fff4ea;
-        }
-
-        .arrival-card span {
-          display: block;
-          padding: 10px;
-          color: #7a4050;
-          font-size: 14px;
-          font-weight: 950;
-          text-align: center;
-        }
-
-        .arrival-title {
-          color: #2f2927;
-          font-size: 13px;
-          font-weight: 900;
-          text-align: center;
-          padding: 0 10px 4px;
-        }
-
-        .arrival-desc {
-          color: #6b403e;
-          font-size: 12px;
-          font-weight: 700;
-          line-height: 1.35;
-          text-align: center;
-          padding: 0 10px 12px;
+          background: transparent;
+          border-radius: 14px;
+          cursor: zoom-in;
         }
 
         .reviews-grid {
@@ -3188,7 +3168,12 @@ Gracias
             padding: 9px 12px;
           }
 
-          .new-arrivals-section,
+          .new-arrivals-section {
+            margin: 10px 10px 0;
+            padding: 11px 12px 10px;
+            border-radius: 16px;
+          }
+
           .reviews-section {
             margin: 14px 10px 0;
             padding: 15px 12px;
@@ -3199,22 +3184,31 @@ Gracias
             font-size: 23px;
           }
 
+          .new-arrivals-section .section-title-wrap {
+            margin-bottom: 8px;
+          }
+
           .section-title-wrap p {
             font-size: 12px;
           }
 
           .new-arrivals-grid {
-            grid-template-columns: repeat(2, 1fr);
+            display: flex;
             gap: 10px;
+            overflow-x: auto;
+            padding: 0 34px 2px 2px;
+          }
+
+          .arrival-card {
+            flex: 0 0 58%;
+            border-radius: 12px;
           }
 
           .arrival-card img {
-            height: 135px;
-          }
-
-          .arrival-card span {
-            font-size: 12px;
-            padding: 8px;
+            aspect-ratio: 4 / 3;
+            height: auto;
+            object-fit: cover;
+            border-radius: 12px;
           }
 
           .reviews-grid {
@@ -3436,16 +3430,24 @@ Gracias
         <section className="new-arrivals-section">
           <div className="section-title-wrap">
             <h2>✨ New Arrivals</h2>
-            <p>Showroom de nuevas colecciones. Busca los códigos en el catálogo para agregarlos a tu pedido.</p>
           </div>
 
           <div className="new-arrivals-grid">
             {showroomArrivals.map((item) => (
               <div className="arrival-card" key={item.id}>
-                <img src={item.image_url} alt={item.title} />
-                <span>{item.codes}</span>
-                {item.title && <div className="arrival-title">{item.title}</div>}
-                {item.description && <div className="arrival-desc">{item.description}</div>}
+                <img
+                  src={item.image_url}
+                  alt="Showroom V & A Style"
+                  onClick={() =>
+                    openImage({
+                      id: item.id,
+                      image: item.image_url,
+                      name: "Showroom V & A Style",
+                      category: "Showroom",
+                      price: 0,
+                    })
+                  }
+                />
               </div>
             ))}
           </div>
@@ -3620,12 +3622,9 @@ Gracias
                       </div>
                     )}
 
-                    <div className="subtotal-row">
-                      Envío y pago seguro: {needsShippingQuote ? "Por cotizar" : `$${formatMoney(shippingAndPaymentCost)} MXN`}
+                    <div className="shipping-note">
+                      📦 Los costos de envío pueden variar según destino y volumen del pedido. El envío se cotiza al momento de confirmar tu compra con tu asesora.
                     </div>
-
-                    TOTAL FINAL<br />
-                    {needsShippingQuote ? "Por confirmar" : `$${formatMoney(total)} MXN`}
                   </div>
 
                   {cart.length < 6 && (
@@ -3633,10 +3632,6 @@ Gracias
                       Pedido mínimo: 6 piezas. Te faltan {6 - cart.length} pieza{6 - cart.length === 1 ? "" : "s"}.
                     </p>
                   )}
-
-                  <button className="mercadopago-btn" onClick={openMercadoPagoModal}>
-                    💳 Pagar con Mercado Pago
-                  </button>
 
                   <button className="pink-btn" onClick={sendWhatsApp}>
                     WhatsApp Enviar pedido
@@ -3667,7 +3662,7 @@ Gracias
             <li>Pedidos 100% garantizados</li>
             <li>Compra con confianza</li>
             <li>Envíos a todo México</li>
-            <li>Local establecido en León, Guanajuato</li>
+            <li>Atendemos desde nuestra tienda física en León, Guanajuato, con envíos a todo México</li>
             <li>Atención personalizada</li>
           </ul>
 
@@ -4202,35 +4197,14 @@ Gracias
             </div>
 
             <div className="bulk-note">
-              Sube fotos grupales, editoriales o banners de nuevas colecciones. Esto NO agrega productos al carrito; solo funciona como vitrina visual.
+              Sube una imagen para el showroom. No se pedirá título, descripción, modelo ni códigos; solo se mostrará la imagen como vitrina visual.
             </div>
-
-            <input
-              placeholder="Título. Ej: NUEVA COLECCIÓN MK"
-              value={showroomForm.title}
-              disabled={showroomForm.uploading}
-              onChange={(e) => setShowroomForm({ ...showroomForm, title: e.target.value.toUpperCase() })}
-            />
-
-            <input
-              placeholder="Códigos visibles. Ej: MYK021 • COA118 • LV550"
-              value={showroomForm.codes}
-              disabled={showroomForm.uploading}
-              onChange={(e) => setShowroomForm({ ...showroomForm, codes: e.target.value.toUpperCase() })}
-            />
-
-            <input
-              placeholder="Texto opcional. Ej: Nuevas piezas disponibles esta semana"
-              value={showroomForm.description}
-              disabled={showroomForm.uploading}
-              onChange={(e) => setShowroomForm({ ...showroomForm, description: e.target.value })}
-            />
 
             <input
               type="file"
               accept="image/*"
               disabled={showroomForm.uploading}
-              onChange={(e) => setShowroomForm({ ...showroomForm, imageFile: e.target.files[0] })}
+              onChange={(e) => setShowroomForm({ ...showroomForm, imageFile: e.target.files[0] || null })}
             />
 
             <button
@@ -4239,7 +4213,7 @@ Gracias
               onClick={saveShowroomArrival}
               disabled={showroomForm.uploading}
             >
-              {showroomForm.uploading ? "Subiendo showroom..." : "Guardar showroom"}
+              {showroomForm.uploading ? "Subiendo imagen..." : "Guardar imagen"}
             </button>
 
             <div className="admin-review-list" style={{ marginTop: "16px" }}>
@@ -4248,10 +4222,7 @@ Gracias
               ) : (
                 showroomItems.map((item) => (
                   <div className="admin-review-item" key={item.id}>
-                    <strong>{item.title}</strong>
-                    <p>{item.codes}</p>
-                    {item.description && <p>{item.description}</p>}
-                    <img src={item.image_url} alt={item.title} className="review-media" />
+                    <img src={item.image_url} alt="Showroom V & A Style" className="review-media" />
                     <button className="delete-btn" onClick={() => deleteShowroomArrival(item.id)}>
                       Eliminar showroom
                     </button>
@@ -4278,7 +4249,7 @@ Gracias
             <div className="orders-header-note">
               {TEST_FREE_SHIPPING
                 ? "Modo prueba activo: envío y cargo de servicio en $0."
-                : "Pedidos registrados desde Mercado Pago y WhatsApp."}
+                : "Pedidos registrados desde WhatsApp."}
             </div>
 
             <button className="pink-btn" style={{ width: "100%", marginBottom: "12px" }} onClick={fetchOrders}>
