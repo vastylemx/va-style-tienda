@@ -232,7 +232,7 @@ function getServiceFee(amount) {
   const baseAmount = getCleanPrice(amount);
   if (baseAmount <= 0) return 0;
 
-  return Math.min(Math.round(baseAmount * 0.042 + 4), 100);
+  return Math.min(Math.round(baseAmount * 0.025 + 4), 100);
 }
 
 function getItemShippingFactor(item) {
