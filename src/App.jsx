@@ -25,7 +25,11 @@ const CART_STORAGE_KEY = "vaStyleCart";
 const ORDER_SENT_KEY = "vaStyleOrderSent";
 const LAST_ADVISOR_KEY = "vaStyleLastAdvisor";
 const ADMIN_SESSION_KEY = "vaStyleAdminSession";
-const TEST_FREE_SHIPPING = true;
+const TEST_FREE_SHIPPING = false;
+const MERCADO_PAGO_TEST_MODE = false;
+const MERCADO_PAGO_MINIMUM_ITEMS = MERCADO_PAGO_TEST_MODE ? 1 : 6;
+const MERCADO_PAGO_MINIMUM_AMOUNT = MERCADO_PAGO_TEST_MODE ? 6 : 50;
+const MP_PENDING_ORDER_KEY = "vaStylePendingMercadoPagoOrder";
 
 const GA_MEASUREMENT_ID = "G-TP0P6637D2";
 
@@ -109,12 +113,69 @@ function getOrderStatus(order) {
     enviado: "Enviado",
     delivered: "Entregado",
     entregado: "Entregado",
+    cancelled: "Cancelado",
+    cancelado: "Cancelado",
+    rejected: "Rechazado",
+    rechazado: "Rechazado",
   };
 
   return labels[normalizedStatus] || rawStatus;
 }
 
-const ORDER_STATUS_OPTIONS = ["Pendiente", "Pagado", "Preparando", "Enviado", "Entregado"];
+const ORDER_STATUS_OPTIONS = ["Pendiente", "Pagado", "Preparando", "Enviado", "Entregado", "Cancelado"];
+
+function buildTelegramOrderMessage(order, title = "🛍️ Nuevo movimiento V&A Style") {
+  const orderId = getOrderId(order);
+  const customerName = order?.customer_name || order?.customerName || "Sin nombre";
+  const customerPhone = order?.customer_phone || order?.customerPhone || "Sin teléfono";
+  const orderTotal = formatMoney(order?.total || 0);
+  const paymentStatus = getOrderPaymentStatus(order);
+  const orderStatus = getOrderStatus(order);
+  const createdAt = formatDate(order?.created_at || order?.createdAt || new Date().toISOString());
+
+  return [
+    title,
+    "",
+    `Cliente: ${customerName}`,
+    `Teléfono: ${customerPhone}`,
+    `Total: $${orderTotal} MXN`,
+    `Pago: ${paymentStatus}`,
+    `Pedido: ${orderStatus}`,
+    `Fecha: ${createdAt}`,
+    "",
+    `ID: ${orderId}`,
+  ].join("\n");
+}
+
+async function sendTelegramOrderNotification(order, title) {
+  try {
+    if (!order) return;
+
+    const orderId = getOrderId(order);
+    const paymentStatus = getOrderPaymentStatus(order);
+    const notificationKey = `vaStyleTelegramNotified:${title}:${orderId}:${paymentStatus}`;
+
+    if (typeof window !== "undefined" && localStorage.getItem(notificationKey) === "true") return;
+
+    const response = await fetch("/api/send-telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: buildTelegramOrderMessage(order, title) }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      console.log("Telegram notification error:", data);
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(notificationKey, "true");
+    }
+  } catch (error) {
+    console.log("Telegram notification failed:", error);
+  }
+}
 
 
 function getSizeOptions(value) {
@@ -152,16 +213,15 @@ function getDefaultShippingFactor(category) {
   }
 }
 
-function getShippingCost(units) {
+function getShippingCost(pieces) {
   if (TEST_FREE_SHIPPING) return 0;
 
-  const safeUnits = Number(units) || 0;
+  const safePieces = Number(pieces) || 0;
 
-  if (safeUnits <= 0) return 0;
-  if (safeUnits <= 12) return 0;
-  if (safeUnits <= 30) return 0;
-  if (safeUnits <= 42) return 0;
-  if (safeUnits <= 60) return 0;
+  if (safePieces <= 0) return 0;
+  if (safePieces <= 10) return 380;
+  if (safePieces <= 24) return 450;
+  if (safePieces <= 40) return 580;
 
   return null;
 }
@@ -172,7 +232,7 @@ function getServiceFee(amount) {
   const baseAmount = getCleanPrice(amount);
   if (baseAmount <= 0) return 0;
 
-  return Math.min(Math.round(baseAmount * 0.05 + 4), 100);
+  return Math.min(Math.round(baseAmount * 0.042 + 4), 100);
 }
 
 function getItemShippingFactor(item) {
@@ -199,6 +259,29 @@ function normalizeCartItems(items) {
     }));
 }
 
+
+function getSessionRandomizedTopGroups(groups, topCount, randomIdsRef) {
+  if (!Array.isArray(groups) || groups.length <= 1) return groups;
+
+  if (!randomIdsRef.current.length) {
+    const shuffled = [...groups];
+
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const randomIndex = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[i]];
+    }
+
+    randomIdsRef.current = shuffled.slice(0, topCount).map((group) => group.id);
+  }
+
+  const randomIdSet = new Set(randomIdsRef.current);
+  const randomTopGroups = randomIdsRef.current
+    .map((id) => groups.find((group) => group.id === id))
+    .filter(Boolean);
+  const remainingGroups = groups.filter((group) => !randomIdSet.has(group.id));
+
+  return [...randomTopGroups, ...remainingGroups];
+}
 
 function getProductInfo(product) {
   const rawName = String(product?.name || "").trim().toUpperCase();
@@ -436,11 +519,13 @@ export default function App() {
   const [newOrderNotice, setNewOrderNotice] = useState("");
 
   const catalogRef = useRef(null);
+  const cartRef = useRef(null);
   const aboutRef = useRef(null);
   const contactRef = useRef(null);
   const lastTapRef = useRef(0);
   const dragRef = useRef(null);
   const toastTimerRef = useRef(null);
+  const randomTopProductGroupsRef = useRef([]);
 
   const ADMIN_PASSWORD = "vanda2025";
 
@@ -486,7 +571,28 @@ export default function App() {
     const paymentStatus = urlParams.get("payment");
 
     if (paymentStatus === "success") {
-      showToast("Pago recibido ✅");
+      const pendingOrderRaw = localStorage.getItem(MP_PENDING_ORDER_KEY);
+      let pendingOrder = null;
+
+      try {
+        pendingOrder = pendingOrderRaw ? JSON.parse(pendingOrderRaw) : null;
+      } catch {
+        pendingOrder = null;
+      }
+
+      trackEvent("purchase", {
+        transaction_id: pendingOrder?.orderId || "mercadopago_success",
+        value: pendingOrder?.total || 0,
+        currency: "MXN",
+        payment_method: "mercadopago",
+        items: pendingOrder?.items || 0,
+      });
+
+
+      localStorage.removeItem(MP_PENDING_ORDER_KEY);
+      localStorage.removeItem(CART_STORAGE_KEY);
+      setCart([]);
+      showToast("Pago recibido ✅ Carrito limpiado");
       window.history.replaceState({}, "", window.location.pathname);
     }
 
@@ -518,7 +624,9 @@ export default function App() {
             const customerName = payload.new?.customer_name || "Nuevo cliente";
             setNewOrderNotice(`Nuevo pedido recibido: ${customerName}`);
             showToast("Nuevo pedido recibido 🛍️");
+            sendTelegramOrderNotification(payload.new, "🛍️ Nuevo pedido creado");
           }
+
         }
       )
       .subscribe();
@@ -687,10 +795,14 @@ export default function App() {
   });
 
   const groupedProducts = buildGroupedProducts(sortedProducts);
-  const totalPages = Math.max(1, Math.ceil(groupedProducts.length / PRODUCTS_PER_PAGE));
+  const displayedProductGroups =
+    category === "Todas" && !normalizedSearch
+      ? getSessionRandomizedTopGroups(groupedProducts, PRODUCTS_PER_PAGE, randomTopProductGroupsRef)
+      : groupedProducts;
+  const totalPages = Math.max(1, Math.ceil(displayedProductGroups.length / PRODUCTS_PER_PAGE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
-  const paginatedProductGroups = groupedProducts.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
+  const paginatedProductGroups = displayedProductGroups.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
   const cartSummary = getCartSummary(cart);
 
   const subtotal = cart
@@ -699,9 +811,7 @@ export default function App() {
 
   const volumeDiscount = cart.length >= 40 ? Math.round(subtotal * 0.05) : 0;
 
-  const shippingUnits = cart
-    .map((item) => getItemShippingFactor(item))
-    .reduce((sum, factor) => sum + factor, 0);
+  const shippingUnits = cart.length;
 
   const shippingCost = getShippingCost(shippingUnits);
   const needsShippingQuote = shippingCost === null;
@@ -1484,8 +1594,8 @@ export default function App() {
       return;
     }
 
-    if (cart.length < 6) {
-      alert("Pedido mínimo: 6 piezas.");
+    if (cart.length < MERCADO_PAGO_MINIMUM_ITEMS) {
+      alert(`Pedido mínimo para Mercado Pago: ${MERCADO_PAGO_MINIMUM_ITEMS} pieza${MERCADO_PAGO_MINIMUM_ITEMS === 1 ? "" : "s"}.`);
       return;
     }
 
@@ -1493,6 +1603,18 @@ export default function App() {
       alert("Este pedido necesita cotización especial de envío. Envíalo por WhatsApp para confirmar el total.");
       return;
     }
+
+    if (total < MERCADO_PAGO_MINIMUM_AMOUNT) {
+      alert(`Monto mínimo para Mercado Pago: $${MERCADO_PAGO_MINIMUM_AMOUNT} MXN.`);
+      return;
+    }
+
+    trackEvent("mercado_pago_click", {
+      items: cart.length,
+      value: total,
+      currency: "MXN",
+      test_mode: MERCADO_PAGO_TEST_MODE,
+    });
 
     setCheckoutForm({ name: "", phone: "" });
     setCheckoutModalOpen(true);
@@ -1517,8 +1639,8 @@ export default function App() {
       return;
     }
 
-    if (!cart.length || needsShippingQuote || total <= 0) {
-      alert("No se puede procesar este pedido. Revisa el carrito.");
+    if (!cart.length || cart.length < MERCADO_PAGO_MINIMUM_ITEMS || needsShippingQuote || total < MERCADO_PAGO_MINIMUM_AMOUNT) {
+      alert(`No se puede procesar este pedido. El monto mínimo para Mercado Pago es $${MERCADO_PAGO_MINIMUM_AMOUNT} MXN.`);
       return;
     }
 
@@ -1546,6 +1668,15 @@ export default function App() {
         .single();
 
       if (orderError) throw orderError;
+
+      sendTelegramOrderNotification(
+        {
+          id: orderData.id,
+          ...orderPayload,
+          created_at: new Date().toISOString(),
+        },
+        "🛍️ Nuevo pedido creado"
+      );
 
       await supabase.from("customers").insert([
         {
@@ -1579,6 +1710,10 @@ export default function App() {
 
       if (!preferenceResponse.ok || !preferenceData.init_point) {
         console.log(preferenceData);
+        await supabase
+          .from("orders")
+          .update({ payment_status: "rejected", order_status: "cancelled", status: "cancelled" })
+          .eq("id", orderData.id);
         throw new Error("No se pudo generar el link de pago.");
       }
 
@@ -1593,6 +1728,18 @@ export default function App() {
         currency: "MXN",
         payment_method: "mercadopago",
       });
+
+      localStorage.setItem(
+        MP_PENDING_ORDER_KEY,
+        JSON.stringify({
+          orderId: orderData.id,
+          customerName,
+          customerPhone,
+          total,
+          items: cart.length,
+          createdAt: new Date().toISOString(),
+        })
+      );
 
       window.location.assign(preferenceData.init_point);
     } catch (error) {
@@ -1635,7 +1782,7 @@ export default function App() {
       })
       .join("\n");
 
-    const message = `
+   const message = `
 Hola, quiero hacer este pedido en V & A Style
 
 ${isAdditionalOrder ? "AGREGADO A PEDIDO ANTERIOR\n" : ""}DATOS DEL CLIENTE
@@ -1646,8 +1793,11 @@ ${productsText}
 
 SUBTOTAL: $${formatMoney(subtotal)} MXN
 ${volumeDiscount > 0 ? `DESCUENTO MAYOREO 5%: -$${formatMoney(volumeDiscount)} MXN
-` : ""}ENVÍO: Se cotiza al confirmar el pedido con tu asesora.
-TOTAL FINAL: Por confirmar con tu asesora.
+` : ""}${needsShippingQuote
+  ? "COSTO DE ENVÍO: Pedidos de más de 40 piezas se cotizan directamente con tu asesora."
+  : `COSTO DE ENVÍO: $${formatMoney(shippingAndPaymentCost)} MXN`
+}
+TOTAL FINAL: ${needsShippingQuote ? "Por confirmar con tu asesora." : `$${formatMoney(total)} MXN`}
 
 Gracias
 `;
@@ -1679,6 +1829,12 @@ Gracias
     } else {
       window.location.assign(webUrl);
     }
+
+    setCart([]);
+    localStorage.removeItem(CART_STORAGE_KEY);
+    localStorage.removeItem(ORDER_SENT_KEY);
+    localStorage.removeItem(LAST_ADVISOR_KEY);
+    showToast("Pedido enviado ✅ Carrito limpiado");
   }
 
   function scrollToCatalog() {
@@ -1688,6 +1844,22 @@ Gracias
         block: "start",
       });
     }, 80);
+  }
+
+  function scrollToCart() {
+    const cartElement = cartRef.current;
+    if (!cartElement || typeof window === "undefined") return;
+
+    const rect = cartElement.getBoundingClientRect();
+    const targetTop = Math.max(
+      0,
+      window.scrollY + rect.top - (window.innerHeight - Math.min(rect.height, window.innerHeight * 0.82)) / 2
+    );
+
+    window.scrollTo({
+      top: targetTop,
+      behavior: "smooth",
+    });
   }
 
   function openLink(url) {
@@ -2325,6 +2497,7 @@ Gracias
           display: flex;
           flex-direction: column;
           gap: 32px;
+          scroll-margin-top: 96px;
         }
 
         .box {
@@ -3226,6 +3399,7 @@ Gracias
           .side {
             width: 100%;
             gap: 16px;
+            scroll-margin-top: 84px;
           }
 
           .box {
@@ -3402,6 +3576,7 @@ Gracias
             onClick={() =>
               document.querySelector(".side")?.scrollIntoView({
                 behavior: "smooth",
+                block: "center",
               })
             }
           >
@@ -3578,7 +3753,7 @@ Gracias
           )}
         </section>
 
-        <aside className="side">
+        <aside className="side" ref={cartRef}>
           <div className="box">
             <div className="box-header">
               <span>🛒 Tu carrito ({cart.length})</span>
@@ -3622,9 +3797,16 @@ Gracias
                       </div>
                     )}
 
-                    <div className="shipping-note">
-                      📦 Los costos de envío pueden variar según destino y volumen del pedido. El envío se cotiza al momento de confirmar tu compra con tu asesora.
-                    </div>
+                    {needsShippingQuote ? (
+                      <div className="shipping-note">
+                        📦 Pedidos de más de 40 piezas requieren cotización de envío directamente con tu asesora.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="subtotal-row">Costo de envío: ${formatMoney(shippingAndPaymentCost)} MXN</div>
+                        <div className="discount-row">Total a pagar: ${formatMoney(total)} MXN</div>
+                      </>
+                    )}
                   </div>
 
                   {cart.length < 6 && (
@@ -3633,8 +3815,18 @@ Gracias
                     </p>
                   )}
 
+                  {total < MERCADO_PAGO_MINIMUM_AMOUNT && (
+                    <p className="minimum-order">
+                      Monto mínimo para Mercado Pago: ${formatMoney(MERCADO_PAGO_MINIMUM_AMOUNT)} MXN.
+                    </p>
+                  )}
+
                   <button className="pink-btn" onClick={sendWhatsApp}>
                     WhatsApp Enviar pedido
+                  </button>
+
+                  <button className="mercadopago-btn" onClick={openMercadoPagoModal}>
+                    💳 Pagar con Mercado Pago {MERCADO_PAGO_TEST_MODE ? "(prueba)" : ""}
                   </button>
                 </>
               )}
@@ -3784,11 +3976,7 @@ Gracias
       {cart.length > 0 && (
         <button
           className="floating-cart"
-          onClick={() =>
-            document.querySelector(".side")?.scrollIntoView({
-              behavior: "smooth",
-            })
-          }
+          onClick={scrollToCart}
         >
           🛒 {cart.length}
         </button>
@@ -3827,6 +4015,9 @@ Gracias
 
             <div className="checkout-total">
               Total a pagar: ${formatMoney(total)} MXN
+              {MERCADO_PAGO_TEST_MODE && (
+                <small>Modo prueba: envío y comisión desactivados.</small>
+              )}
             </div>
 
             <div className="modal-actions">
