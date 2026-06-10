@@ -1794,8 +1794,8 @@ ${productsText}
 SUBTOTAL: $${formatMoney(subtotal)} MXN
 ${volumeDiscount > 0 ? `DESCUENTO MAYOREO 5%: -$${formatMoney(volumeDiscount)} MXN
 ` : ""}${needsShippingQuote
-  ? "COSTO DE ENVÍO: Pedidos de más de 40 piezas se cotizan directamente con tu asesora."
-  : `COSTO DE ENVÍO: $${formatMoney(shippingAndPaymentCost)} MXN`
+  ? `ENVÍO A DOMICILIO: Pedidos de más de 40 piezas se cotizan directamente con tu asesora.`
+  : `ENVÍO A DOMICILIO: $${formatMoney(shippingAndPaymentCost)} MXN`
 }
 TOTAL FINAL: ${needsShippingQuote ? "Por confirmar con tu asesora." : `$${formatMoney(total)} MXN`}
 
@@ -3803,7 +3803,7 @@ Gracias
                       </div>
                     ) : (
                       <>
-                        <div className="subtotal-row">Costo de envío: ${formatMoney(shippingAndPaymentCost)} MXN</div>
+                        <div className="subtotal-row">Envío a domicilio: ${formatMoney(shippingAndPaymentCost)} MXN</div>
                         <div className="discount-row">Total a pagar: ${formatMoney(total)} MXN</div>
                       </>
                     )}
