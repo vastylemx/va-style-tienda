@@ -3613,6 +3613,8 @@ Gracias
                 <img
                   src={item.image_url}
                   alt="Showroom V & A Style"
+                  loading="lazy"
+                  decoding="async"
                   onClick={() =>
                     openImage({
                       id: item.id,
@@ -3696,6 +3698,8 @@ Gracias
                     <img
                       src={group.image}
                       alt={group.name}
+                      loading="lazy"
+                      decoding="async"
                       onClick={() => openProductGroup(group)}
                     />
 
@@ -3929,7 +3933,13 @@ Gracias
                 )}
 
                 {review.media_url && review.media_type !== "video" && (
-                  <img src={review.media_url} alt="Reseña de cliente" className="review-media" />
+                  <img
+                    src={review.media_url}
+                    alt="Reseña de cliente"
+                    className="review-media"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 )}
               </div>
             ))}
@@ -4050,6 +4060,8 @@ Gracias
                   <img
                     src={variant.image}
                     alt={variant.name}
+                    loading="lazy"
+                    decoding="async"
                     onClick={() => openImage(variant, selectedProductGroup.variants)}
                   />
 
@@ -4170,6 +4182,8 @@ Gracias
               src={selectedProduct.image}
               alt={selectedProduct.name}
               className="image-modal-img"
+              loading="eager"
+              decoding="async"
               draggable="false"
               style={{
                 transform: `translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${imageZoom})`,
@@ -4413,7 +4427,13 @@ Gracias
               ) : (
                 showroomItems.map((item) => (
                   <div className="admin-review-item" key={item.id}>
-                    <img src={item.image_url} alt="Showroom V & A Style" className="review-media" />
+                    <img
+                      src={item.image_url}
+                      alt="Showroom V & A Style"
+                      className="review-media"
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <button className="delete-btn" onClick={() => deleteShowroomArrival(item.id)}>
                       Eliminar showroom
                     </button>
@@ -4520,7 +4540,13 @@ Gracias
                       <video src={review.media_url} controls className="review-media" />
                     )}
                     {review.media_url && review.media_type !== "video" && (
-                      <img src={review.media_url} alt="Reseña" className="review-media" />
+                      <img
+                        src={review.media_url}
+                        alt="Reseña"
+                        className="review-media"
+                        loading="lazy"
+                        decoding="async"
+                      />
                     )}
                     <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                       {!review.approved && (
