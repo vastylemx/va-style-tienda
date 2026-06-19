@@ -816,13 +816,11 @@ export default function App() {
   const shippingCost = getShippingCost(shippingUnits);
   const needsShippingQuote = shippingCost === null;
 
-  const totalBeforeService = needsShippingQuote
+  const shippingAndPaymentCost = needsShippingQuote ? null : shippingCost;
+  const serviceFee = 0;
+  const total = needsShippingQuote
     ? Math.max(subtotal - volumeDiscount, 0)
     : Math.max(subtotal - volumeDiscount + shippingCost, 0);
-
-  const serviceFee = needsShippingQuote ? 0 : getServiceFee(totalBeforeService);
-  const shippingAndPaymentCost = needsShippingQuote ? null : shippingCost + serviceFee;
-  const total = totalBeforeService + serviceFee;
 
   function showToast(message) {
     setToast(message);
@@ -2573,6 +2571,33 @@ Gracias
           margin-top: 8px;
         }
 
+        .whatsapp-order-btn {
+          width: 100%;
+          background: #25D366;
+          color: white;
+          padding: 15px 16px;
+          border-radius: 999px;
+          font-size: 16px;
+          font-weight: 950;
+          margin: 6px 0 10px;
+          box-shadow: 0 8px 18px rgba(37, 211, 102, .24);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+
+        .whatsapp-order-btn svg {
+          width: 20px;
+          height: 20px;
+          fill: currentColor;
+        }
+
+        .whatsapp-order-btn:disabled {
+          opacity: .65;
+          cursor: not-allowed;
+        }
+
         .mercadopago-btn {
           width: 100%;
           background: #009ee3;
@@ -3819,18 +3844,9 @@ Gracias
                     </p>
                   )}
 
-                  {total < MERCADO_PAGO_MINIMUM_AMOUNT && (
-                    <p className="minimum-order">
-                      Monto mínimo para Mercado Pago: ${formatMoney(MERCADO_PAGO_MINIMUM_AMOUNT)} MXN.
-                    </p>
-                  )}
-
-                  <button className="pink-btn" onClick={sendWhatsApp}>
-                    WhatsApp Enviar pedido
-                  </button>
-
-                  <button className="mercadopago-btn" onClick={openMercadoPagoModal}>
-                    💳 Pagar con Mercado Pago {MERCADO_PAGO_TEST_MODE ? "(prueba)" : ""}
+                  <button className="whatsapp-order-btn" onClick={sendWhatsApp}>
+                    <WhatsAppIcon />
+                    Enviar pedido a asesor por WhatsApp
                   </button>
                 </>
               )}
