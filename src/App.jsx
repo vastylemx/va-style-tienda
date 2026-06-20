@@ -840,6 +840,9 @@ export default function App() {
         category: normalizeCategory(p.category),
         sizes: p.sizes || "",
         discountPercent: getDiscountPercent(p.discount_percent),
+        is_new_arrival: Boolean(p.is_new_arrival),
+        is_best_seller: Boolean(p.is_best_seller),
+        is_home_featured: Boolean(p.is_home_featured),
         isNewArrival: Boolean(p.is_new_arrival),
         isBestSeller: Boolean(p.is_best_seller),
         isHomeFeatured: Boolean(p.is_home_featured),
@@ -941,9 +944,9 @@ export default function App() {
     const matchesCategory = category === "Todas" || p.category === category;
     const matchesView =
       currentView === "novedades"
-        ? Boolean(p.isNewArrival)
+        ? Boolean(p.isNewArrival || p.is_new_arrival)
         : currentView === "masVendidos"
-          ? Boolean(p.isBestSeller)
+          ? Boolean(p.isBestSeller || p.is_best_seller)
           : true;
 
     const matchesSearch =
@@ -1127,6 +1130,44 @@ export default function App() {
 
     showToast("Colores agregados al carrito ✅");
     closeProductGroup();
+  }
+
+  function addVariantDirectToCart(variant, group) {
+    const sizeOptions = getSizeOptions(variant.sizes);
+    const selectedSize = variant.category === "Calzado" ? selectedSizes[variant.id] : "";
+
+    if (variant.category === "Calzado") {
+      if (!sizeOptions.length) {
+        alert(`Este calzado todavía no tiene tallas registradas: ${variant.name}`);
+        return;
+      }
+
+      if (!selectedSize) {
+        alert(`Selecciona la talla para ${variant.name}.`);
+        return;
+      }
+    }
+
+    const itemToAdd = {
+      ...variant,
+      selectedSize,
+      originalPrice: getCleanPrice(variant.price),
+      discountPercent: getDiscountPercent(variant.discountPercent),
+      price: getFinalPrice(variant),
+      shippingFactor: getItemShippingFactor(variant),
+    };
+
+    setCart((prevCart) => [...prevCart, itemToAdd]);
+
+    trackEvent("add_variant_direct_to_cart", {
+      item_id: variant.modelCode || group?.code || variant.name,
+      item_name: variant.name,
+      item_category: variant.category,
+      value: getFinalPrice(variant),
+      currency: "MXN",
+    });
+
+    showToast("Producto agregado al carrito ✅");
   }
 
   function openImage(product, gallery = []) {
@@ -1805,10 +1846,15 @@ export default function App() {
     fetchShowroomArrivals();
   }
 
-  async function toggleNewArrival(product) {
+  async function updateProductFlag(product, field, nextValue, successMessage) {
+    if (!product?.id) {
+      alert("No se pudo identificar el producto.");
+      return;
+    }
+
     const { error } = await supabase
       .from("products")
-      .update({ is_new_arrival: !product.isNewArrival })
+      .update({ [field]: nextValue })
       .eq("id", product.id);
 
     if (error) {
@@ -1817,37 +1863,66 @@ export default function App() {
       return;
     }
 
-    fetchProducts();
+    setProducts((prevProducts) =>
+      prevProducts.map((item) => {
+        if (item.id !== product.id) return item;
+
+        if (field === "is_new_arrival") return { ...item, isNewArrival: nextValue, is_new_arrival: nextValue };
+        if (field === "is_best_seller") return { ...item, isBestSeller: nextValue, is_best_seller: nextValue };
+        if (field === "is_home_featured") return { ...item, isHomeFeatured: nextValue, is_home_featured: nextValue };
+
+        return item;
+      })
+    );
+
+    setSelectedProductGroup((prevGroup) => {
+      if (!prevGroup?.variants?.length) return prevGroup;
+
+      return {
+        ...prevGroup,
+        variants: prevGroup.variants.map((variant) => {
+          if (variant.id !== product.id) return variant;
+
+          if (field === "is_new_arrival") return { ...variant, isNewArrival: nextValue, is_new_arrival: nextValue };
+          if (field === "is_best_seller") return { ...variant, isBestSeller: nextValue, is_best_seller: nextValue };
+          if (field === "is_home_featured") return { ...variant, isHomeFeatured: nextValue, is_home_featured: nextValue };
+
+          return variant;
+        }),
+      };
+    });
+
+    showToast(successMessage);
+  }
+
+  async function toggleNewArrival(product) {
+    const nextValue = !Boolean(product?.isNewArrival || product?.is_new_arrival);
+    await updateProductFlag(
+      product,
+      "is_new_arrival",
+      nextValue,
+      nextValue ? "Producto marcado como novedad ✅" : "Producto quitado de novedades"
+    );
   }
 
   async function toggleBestSeller(product) {
-    const { error } = await supabase
-      .from("products")
-      .update({ is_best_seller: !product.isBestSeller })
-      .eq("id", product.id);
-
-    if (error) {
-      alert(error.message);
-      console.log(error);
-      return;
-    }
-
-    fetchProducts();
+    const nextValue = !Boolean(product?.isBestSeller || product?.is_best_seller);
+    await updateProductFlag(
+      product,
+      "is_best_seller",
+      nextValue,
+      nextValue ? "Producto marcado como más vendido ✅" : "Producto quitado de más vendidos"
+    );
   }
 
   async function toggleHomeFeatured(product) {
-    const { error } = await supabase
-      .from("products")
-      .update({ is_home_featured: !product.isHomeFeatured })
-      .eq("id", product.id);
-
-    if (error) {
-      alert(error.message);
-      console.log(error);
-      return;
-    }
-
-    fetchProducts();
+    const nextValue = !Boolean(product?.isHomeFeatured || product?.is_home_featured);
+    await updateProductFlag(
+      product,
+      "is_home_featured",
+      nextValue,
+      nextValue ? "Producto marcado como destacado ✅" : "Producto quitado de destacados"
+    );
   }
 
   async function getSelectedWhatsAppNumber() {
@@ -2152,10 +2227,45 @@ Gracias
   }
 
   function selectCategory(nextCategory) {
+    setSearchTerm("");
     setCategory(nextCategory);
     setCurrentView("home");
     setCurrentPage(1);
     setShowCategorySheet(false);
+    scrollToCatalog();
+  }
+
+  function openHomeView() {
+    setSearchTerm("");
+    setCategory("Todas");
+    setCurrentView("home");
+    setCurrentPage(1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openNewArrivalsView() {
+    setSearchTerm("");
+    setCategory("Todas");
+    setCurrentView("novedades");
+    setSortOrder("recent");
+    setCurrentPage(1);
+    scrollToCatalog();
+  }
+
+  function openBestSellersView() {
+    setSearchTerm("");
+    setCategory("Todas");
+    setCurrentView("masVendidos");
+    setSortOrder("az");
+    setCurrentPage(1);
+    scrollToCatalog();
+  }
+
+  function openFavoritesView() {
+    setSearchTerm("");
+    setCategory("Todas");
+    setCurrentView("favoritos");
+    setCurrentPage(1);
     scrollToCatalog();
   }
 
@@ -3349,6 +3459,23 @@ Gracias
           margin-bottom: 5px;
         }
 
+
+        .variant-plus-btn {
+          width: 100%;
+          min-height: 50px;
+          border-radius: 999px;
+          background: #c94462;
+          color: #fff;
+          font-size: 28px;
+          line-height: 1;
+          font-weight: 950;
+          box-shadow: 0 10px 20px rgba(201,68,98,.22);
+          margin-top: 8px;
+        }
+
+        .variant-plus-btn:active {
+          transform: scale(.98);
+        }
         .qty-control {
           display: grid;
           grid-template-columns: 42px 1fr 42px;
@@ -4689,12 +4816,7 @@ Gracias
       <section className="home-feature-cards">
         <button
           className="home-feature-card"
-          onClick={() => {
-            setCurrentView("novedades");
-            setSortOrder("recent");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
+          onClick={openNewArrivalsView}
         >
           <div>
             <strong>{homeSettings.new_arrivals_title || DEFAULT_HOME_SETTINGS.new_arrivals_title}</strong>
@@ -4711,13 +4833,7 @@ Gracias
 
         <button
           className="home-feature-card"
-          onClick={() => {
-            setCurrentView("masVendidos");
-            setCategory("Todas");
-            setSortOrder("az");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
+          onClick={openBestSellersView}
         >
           <div>
             <strong>{homeSettings.best_sellers_title || DEFAULT_HOME_SETTINGS.best_sellers_title}</strong>
@@ -4774,7 +4890,13 @@ Gracias
 
           {filtered.length === 0 ? (
             <div className="empty-results">
-              {currentView === "favoritos" ? "Todavía no tienes favoritos guardados." : "No encontramos productos con esa búsqueda."}
+              {currentView === "favoritos"
+                ? "Todavía no tienes favoritos guardados."
+                : currentView === "novedades"
+                  ? "Todavía no hay productos marcados como novedad."
+                  : currentView === "masVendidos"
+                    ? "Todavía no hay productos marcados como más vendidos."
+                    : "No encontramos productos con esa búsqueda."}
             </div>
           ) : (
             <>
@@ -5192,11 +5314,13 @@ Gracias
                       </select>
                     )}
 
-                    <div className="qty-control">
-                      <button onClick={() => updateVariantQuantity(variant.id, (variantQuantities[variant.id] || 0) - 1)}>−</button>
-                      <span>{variantQuantities[variant.id] || 0}</span>
-                      <button onClick={() => updateVariantQuantity(variant.id, (variantQuantities[variant.id] || 0) + 1)}>+</button>
-                    </div>
+                    <button
+                      className="variant-plus-btn"
+                      onClick={() => addVariantDirectToCart(variant, selectedProductGroup)}
+                      aria-label={`Agregar ${variant.name} al carrito`}
+                    >
+                      +
+                    </button>
 
                     {showAdmin && (
                       <div style={{ marginTop: "10px" }}>
@@ -5245,11 +5369,7 @@ Gracias
               ))}
             </div>
 
-            <div className="variants-footer">
-              <button className="pink-btn" onClick={() => addVariantsToCart(selectedProductGroup)}>
-                Agregar selección 🛒
-              </button>
-            </div>
+
           </div>
         </div>
       )}
@@ -5883,12 +6003,7 @@ Gracias
       <nav className="bottom-nav">
         <button
           className={currentView === "home" ? "active" : ""}
-          onClick={() => {
-            setCurrentView("home");
-            setCategory("Todas");
-            setCurrentPage(1);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
+          onClick={openHomeView}
         >
           <span>🏠</span>
           Inicio
@@ -5899,25 +6014,14 @@ Gracias
         </button>
         <button
           className={currentView === "novedades" ? "active" : ""}
-          onClick={() => {
-            setCurrentView("novedades");
-            setCategory("Todas");
-            setSortOrder("recent");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
+          onClick={openNewArrivalsView}
         >
           <span>✨</span>
           Novedades
         </button>
         <button
           className={currentView === "favoritos" ? "active" : ""}
-          onClick={() => {
-            setCurrentView("favoritos");
-            setCategory("Todas");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
+          onClick={openFavoritesView}
         >
           <span>♡</span>
           Favoritos
