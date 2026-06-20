@@ -30,61 +30,12 @@ const MERCADO_PAGO_TEST_MODE = false;
 const MERCADO_PAGO_MINIMUM_ITEMS = MERCADO_PAGO_TEST_MODE ? 1 : 6;
 const MERCADO_PAGO_MINIMUM_AMOUNT = MERCADO_PAGO_TEST_MODE ? 6 : 50;
 const MP_PENDING_ORDER_KEY = "vaStylePendingMercadoPagoOrder";
-const FAVORITES_STORAGE_KEY = "vaStyleFavorites";
-const INSTALL_BANNER_VIEW_KEY = "vaStyleInstallBannerViewed";
-
-const DEFAULT_HOME_SETTINGS = {
-  id: 1,
-  hero_image_url: "",
-  new_arrivals_image_url: "",
-  best_sellers_image_url: "",
-  hero_title: "Descubre V & A Style",
-  hero_subtitle: "✨ Estás a un paso de comenzar tu sueño",
-  new_arrivals_title: "New Arrivals",
-  new_arrivals_subtitle: "Lo más nuevo para tu negocio",
-  best_sellers_title: "Más vendidos",
-  best_sellers_subtitle: "Los favoritos de nuestras clientas",
-  show_install_banner: true,
-  install_banner_title: "Instala V & A Style",
-  install_banner_subtitle: "Lleva tu tienda siempre contigo",
-};
-
-const FALLBACK_HOME_IMAGE = "https://ankhvpcykeyexwnwcmqa.supabase.co/storage/v1/object/public/home-media/IMG_6310.png";
 
 const GA_MEASUREMENT_ID = "G-TP0P6637D2";
 
 function trackEvent(eventName, params = {}) {
   if (typeof window === "undefined" || typeof window.gtag !== "function") return;
   window.gtag("event", eventName, params);
-}
-
-function getDeviceInfo() {
-  if (typeof navigator === "undefined") {
-    return { device: "unknown", browser: "unknown", source: "" };
-  }
-
-  const ua = navigator.userAgent || "";
-  const device = /iPhone|iPad|iPod/i.test(ua)
-    ? "ios"
-    : /Android/i.test(ua)
-      ? "android"
-      : "desktop";
-
-  const browser = /CriOS|Chrome/i.test(ua)
-    ? "chrome"
-    : /Safari/i.test(ua)
-      ? "safari"
-      : /Firefox/i.test(ua)
-        ? "firefox"
-        : "other";
-
-  const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
-  return { device, browser, source: params.get("utm_source") || params.get("source") || "" };
-}
-
-function isIOSDevice() {
-  if (typeof navigator === "undefined") return false;
-  return /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 }
 
 function getCleanPrice(value) {
@@ -504,25 +455,6 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [showroomItems, setShowroomItems] = useState([]);
-  const [homeSettings, setHomeSettings] = useState(DEFAULT_HOME_SETTINGS);
-  const [homeForm, setHomeForm] = useState({
-    heroFile: null,
-    newArrivalsFile: null,
-    bestSellersFile: null,
-    saving: false,
-  });
-  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
-  const [canInstallApp, setCanInstallApp] = useState(false);
-  const [showCategorySheet, setShowCategorySheet] = useState(false);
-  const [currentView, setCurrentView] = useState("home");
-  const [favorites, setFavorites] = useState(() => {
-    try {
-      if (typeof window === "undefined") return [];
-      return JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY) || "[]");
-    } catch {
-      return [];
-    }
-  });
   const [category, setCategory] = useState("Todas");
   const [cart, setCart] = useState(() => {
     try {
@@ -554,8 +486,6 @@ export default function App() {
     sizes: "",
     discount_percent: "",
     isNewArrival: false,
-    isBestSeller: false,
-    isHomeFeatured: false,
     precio_mayorista: "",
     files: [],
     uploading: false,
@@ -592,7 +522,6 @@ export default function App() {
   const cartRef = useRef(null);
   const aboutRef = useRef(null);
   const contactRef = useRef(null);
-  const reviewsRef = useRef(null);
   const lastTapRef = useRef(0);
   const dragRef = useRef(null);
   const toastTimerRef = useRef(null);
@@ -607,8 +536,6 @@ export default function App() {
     sizes: "",
     discount_percent: "",
     isNewArrival: false,
-    isBestSeller: false,
-    isHomeFeatured: false,
     precio_mayorista: "",
     shipping_factor: "1",
     imageFile: null,
@@ -619,31 +546,8 @@ export default function App() {
     fetchProducts();
     fetchReviews();
     fetchShowroomArrivals();
-    fetchHomeSettings();
 
     if (typeof window === "undefined") return;
-
-    const handleBeforeInstallPrompt = (event) => {
-      event.preventDefault();
-      setDeferredInstallPrompt(event);
-      setCanInstallApp(true);
-    };
-
-    const handleAppInstalled = () => {
-      setCanInstallApp(false);
-      setDeferredInstallPrompt(null);
-      recordInstallEvent("installed");
-      trackEvent("app_installed", { platform: "pwa" });
-    };
-
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/service-worker.js").catch((error) => {
-        console.log("Service worker registration failed:", error);
-      });
-    }
-
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-    window.addEventListener("appinstalled", handleAppInstalled);
 
     window.dataLayer = window.dataLayer || [];
     window.gtag =
@@ -701,11 +605,6 @@ export default function App() {
       showToast("El pago no se completó");
       window.history.replaceState({}, "", window.location.pathname);
     }
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", handleAppInstalled);
-    };
   }, []);
 
   useEffect(() => {
@@ -742,10 +641,6 @@ export default function App() {
   }, [cart]);
 
   useEffect(() => {
-    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
-  }, [favorites]);
-
-  useEffect(() => {
     setCurrentPage(1);
 
     if (category) {
@@ -761,65 +656,6 @@ export default function App() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
-
-  async function fetchHomeSettings() {
-    const { data, error } = await supabase
-      .from("home_settings")
-      .select("*")
-      .eq("id", 1)
-      .single();
-
-    if (error) {
-      console.log(error);
-      return;
-    }
-
-    setHomeSettings({ ...DEFAULT_HOME_SETTINGS, ...(data || {}) });
-  }
-
-  async function recordInstallEvent(eventType) {
-    try {
-      const info = getDeviceInfo();
-
-      await supabase.from("app_installs").insert([
-        {
-          event_type: eventType,
-          device: info.device,
-          browser: info.browser,
-          source: info.source,
-        },
-      ]);
-    } catch (error) {
-      console.log("Install event error:", error);
-    }
-  }
-
-  async function handleInstallAppClick() {
-    trackEvent("install_app_click", { location: "home_banner" });
-    recordInstallEvent("install_click");
-
-    if (deferredInstallPrompt) {
-      deferredInstallPrompt.prompt();
-      const result = await deferredInstallPrompt.userChoice;
-      setDeferredInstallPrompt(null);
-      setCanInstallApp(false);
-
-      if (result?.outcome === "accepted") {
-        recordInstallEvent("installed");
-        trackEvent("app_installed", { platform: "pwa" });
-      }
-
-      return;
-    }
-
-    if (isIOSDevice()) {
-      recordInstallEvent("ios_instruction_view");
-      alert("Para instalar V & A Style en iPhone: toca Compartir en Safari y después elige Agregar a pantalla de inicio.");
-      return;
-    }
-
-    alert("Para instalar V & A Style: abre el menú del navegador y elige Instalar app o Agregar a pantalla de inicio.");
-  }
 
   async function fetchProducts() {
     const { data, error } = await supabase
@@ -841,8 +677,6 @@ export default function App() {
         sizes: p.sizes || "",
         discountPercent: getDiscountPercent(p.discount_percent),
         isNewArrival: Boolean(p.is_new_arrival),
-        isBestSeller: Boolean(p.is_best_seller),
-        isHomeFeatured: Boolean(p.is_home_featured),
         created_at: p.created_at,
         price: Number(p.wholesale_price) || 0,
         shippingFactor: Number(p.shipping_factor) || getDefaultShippingFactor(p.category),
@@ -939,12 +773,6 @@ export default function App() {
 
   const filtered = products.filter((p) => {
     const matchesCategory = category === "Todas" || p.category === category;
-    const matchesView =
-      currentView === "novedades"
-        ? Boolean(p.isNewArrival)
-        : currentView === "masVendidos"
-          ? Boolean(p.isBestSeller)
-          : true;
 
     const matchesSearch =
       !normalizedSearch ||
@@ -952,7 +780,7 @@ export default function App() {
       (p.brand || "").toLowerCase().includes(normalizedSearch) ||
       p.category.toLowerCase().includes(normalizedSearch);
 
-    return matchesCategory && matchesView && matchesSearch;
+    return matchesCategory && matchesSearch;
   });
 
   const sortedProducts = [...filtered].sort((a, b) => {
@@ -967,24 +795,15 @@ export default function App() {
   });
 
   const groupedProducts = buildGroupedProducts(sortedProducts);
-  const favoriteProductGroups = groupedProducts.filter((group) => favorites.includes(getFavoriteKey(group)));
-  const baseProductGroups = currentView === "favoritos" ? favoriteProductGroups : groupedProducts;
   const displayedProductGroups =
-    currentView === "home" && category === "Todas" && !normalizedSearch
-      ? getSessionRandomizedTopGroups(baseProductGroups, PRODUCTS_PER_PAGE, randomTopProductGroupsRef)
-      : baseProductGroups;
+    category === "Todas" && !normalizedSearch
+      ? getSessionRandomizedTopGroups(groupedProducts, PRODUCTS_PER_PAGE, randomTopProductGroupsRef)
+      : groupedProducts;
   const totalPages = Math.max(1, Math.ceil(displayedProductGroups.length / PRODUCTS_PER_PAGE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
   const paginatedProductGroups = displayedProductGroups.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
   const cartSummary = getCartSummary(cart);
-  const reviewAverage = approvedReviews.length
-    ? (
-        approvedReviews.reduce((sum, review) => sum + (Number(review.rating) || 5), 0) /
-        approvedReviews.length
-      ).toFixed(1)
-    : "5.0";
-  const reviewCount = approvedReviews.length;
 
   const subtotal = cart
     .map((item) => getCleanPrice(item.price))
@@ -1303,8 +1122,6 @@ export default function App() {
       sizes: "",
       discount_percent: "",
       isNewArrival: false,
-      isBestSeller: false,
-      isHomeFeatured: false,
       precio_mayorista: "",
       shipping_factor: "1",
       imageFile: null,
@@ -1323,8 +1140,6 @@ export default function App() {
       sizes: product.sizes || "",
       discount_percent: product.discountPercent || "",
       isNewArrival: Boolean(product.isNewArrival),
-      isBestSeller: Boolean(product.isBestSeller),
-      isHomeFeatured: Boolean(product.isHomeFeatured),
       precio_mayorista: product.price,
       shipping_factor: String(product.shippingFactor || getDefaultShippingFactor(product.category)),
       imageFile: null,
@@ -1342,8 +1157,6 @@ export default function App() {
       sizes: "",
       discount_percent: "",
       isNewArrival: false,
-      isBestSeller: false,
-      isHomeFeatured: false,
       precio_mayorista: "",
       files: [],
       uploading: false,
@@ -1419,8 +1232,6 @@ export default function App() {
           sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
           discount_percent: getDiscountPercent(newProduct.discount_percent),
           is_new_arrival: Boolean(newProduct.isNewArrival),
-          is_best_seller: Boolean(newProduct.isBestSeller),
-          is_home_featured: Boolean(newProduct.isHomeFeatured),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           shipping_factor: Number(newProduct.shipping_factor) || getDefaultShippingFactor(newProduct.category),
           image_url: publicUrl,
@@ -1437,8 +1248,6 @@ export default function App() {
           sizes: newProduct.category === "Calzado" ? newProduct.sizes.trim().toUpperCase() : "",
           discount_percent: getDiscountPercent(newProduct.discount_percent),
           is_new_arrival: Boolean(newProduct.isNewArrival),
-          is_best_seller: Boolean(newProduct.isBestSeller),
-          is_home_featured: Boolean(newProduct.isHomeFeatured),
           wholesale_price: getCleanPrice(newProduct.precio_mayorista),
           shipping_factor: Number(newProduct.shipping_factor) || getDefaultShippingFactor(newProduct.category),
           image_url: publicUrl,
@@ -1463,8 +1272,6 @@ export default function App() {
       sizes: "",
       discount_percent: "",
       isNewArrival: false,
-      isBestSeller: false,
-      isHomeFeatured: false,
       precio_mayorista: "",
       shipping_factor: "1",
       imageFile: null,
@@ -1482,8 +1289,6 @@ export default function App() {
     const sizes = bulkUpload.category === "Calzado" ? bulkUpload.sizes.trim().toUpperCase() : "";
     const discountPercent = getDiscountPercent(bulkUpload.discount_percent);
     const isNewArrival = Boolean(bulkUpload.isNewArrival);
-    const isBestSeller = Boolean(bulkUpload.isBestSeller);
-    const isHomeFeatured = Boolean(bulkUpload.isHomeFeatured);
     const price = getCleanPrice(bulkUpload.precio_mayorista);
     const files = Array.from(bulkUpload.files || []);
 
@@ -1549,8 +1354,6 @@ export default function App() {
           sizes,
           discount_percent: discountPercent,
           is_new_arrival: isNewArrival,
-          is_best_seller: isBestSeller,
-          is_home_featured: isHomeFeatured,
           wholesale_price: price,
           shipping_factor: getDefaultShippingFactor(bulkUpload.category),
           image_url: publicUrl,
@@ -1573,8 +1376,6 @@ export default function App() {
       sizes: "",
       discount_percent: "",
       isNewArrival: false,
-      isBestSeller: false,
-      isHomeFeatured: false,
       precio_mayorista: "",
       files: [],
       uploading: false,
@@ -1677,69 +1478,6 @@ export default function App() {
     fetchReviews();
   }
 
-  async function uploadHomeMedia(file, currentUrl) {
-    if (!file) return currentUrl || "";
-
-    const compressedFile = await compressImage(file, 1600, 0.84);
-    const fileName = `${Date.now()}-home-${compressedFile.name.replace(/\s+/g, "-")}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("home-media")
-      .upload(fileName, compressedFile, {
-        contentType: compressedFile.type || "image/jpeg",
-        upsert: false,
-      });
-
-    if (uploadError) throw uploadError;
-
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("home-media").getPublicUrl(fileName);
-
-    return publicUrl;
-  }
-
-  async function saveHomeSettings() {
-    setHomeForm((prev) => ({ ...prev, saving: true }));
-
-    try {
-      const heroImageUrl = await uploadHomeMedia(homeForm.heroFile, homeSettings.hero_image_url);
-      const newArrivalsImageUrl = await uploadHomeMedia(homeForm.newArrivalsFile, homeSettings.new_arrivals_image_url);
-      const bestSellersImageUrl = await uploadHomeMedia(homeForm.bestSellersFile, homeSettings.best_sellers_image_url);
-
-      const nextSettings = {
-        id: 1,
-        hero_image_url: heroImageUrl,
-        new_arrivals_image_url: newArrivalsImageUrl,
-        best_sellers_image_url: bestSellersImageUrl,
-        hero_title: homeSettings.hero_title || DEFAULT_HOME_SETTINGS.hero_title,
-        hero_subtitle: homeSettings.hero_subtitle || DEFAULT_HOME_SETTINGS.hero_subtitle,
-        new_arrivals_title: homeSettings.new_arrivals_title || DEFAULT_HOME_SETTINGS.new_arrivals_title,
-        new_arrivals_subtitle: homeSettings.new_arrivals_subtitle || DEFAULT_HOME_SETTINGS.new_arrivals_subtitle,
-        best_sellers_title: homeSettings.best_sellers_title || DEFAULT_HOME_SETTINGS.best_sellers_title,
-        best_sellers_subtitle: homeSettings.best_sellers_subtitle || DEFAULT_HOME_SETTINGS.best_sellers_subtitle,
-        show_install_banner: Boolean(homeSettings.show_install_banner),
-        install_banner_title: homeSettings.install_banner_title || DEFAULT_HOME_SETTINGS.install_banner_title,
-        install_banner_subtitle: homeSettings.install_banner_subtitle || DEFAULT_HOME_SETTINGS.install_banner_subtitle,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from("home_settings")
-        .upsert(nextSettings, { onConflict: "id" });
-
-      if (error) throw error;
-
-      setHomeSettings((prev) => ({ ...prev, ...nextSettings }));
-      setHomeForm({ heroFile: null, newArrivalsFile: null, bestSellersFile: null, saving: false });
-      alert("Pantalla principal actualizada correctamente");
-    } catch (error) {
-      alert(error.message || "No se pudieron guardar los cambios del home.");
-      console.log(error);
-      setHomeForm((prev) => ({ ...prev, saving: false }));
-    }
-  }
-
   async function saveShowroomArrival() {
     if (!showroomForm.imageFile) {
       alert("Selecciona una imagen para el showroom.");
@@ -1809,36 +1547,6 @@ export default function App() {
     const { error } = await supabase
       .from("products")
       .update({ is_new_arrival: !product.isNewArrival })
-      .eq("id", product.id);
-
-    if (error) {
-      alert(error.message);
-      console.log(error);
-      return;
-    }
-
-    fetchProducts();
-  }
-
-  async function toggleBestSeller(product) {
-    const { error } = await supabase
-      .from("products")
-      .update({ is_best_seller: !product.isBestSeller })
-      .eq("id", product.id);
-
-    if (error) {
-      alert(error.message);
-      console.log(error);
-      return;
-    }
-
-    fetchProducts();
-  }
-
-  async function toggleHomeFeatured(product) {
-    const { error } = await supabase
-      .from("products")
-      .update({ is_home_featured: !product.isHomeFeatured })
       .eq("id", product.id);
 
     if (error) {
@@ -2125,42 +1833,6 @@ Gracias
     localStorage.removeItem(ORDER_SENT_KEY);
     localStorage.removeItem(LAST_ADVISOR_KEY);
     showToast("Pedido enviado ✅ Carrito limpiado");
-  }
-
-  function getFavoriteKey(group) {
-    return group?.id || group?.code || group?.name || "";
-  }
-
-  function isFavoriteGroup(group) {
-    return favorites.includes(getFavoriteKey(group));
-  }
-
-  function toggleFavoriteGroup(group) {
-    const key = getFavoriteKey(group);
-    if (!key) return;
-
-    const nextActive = !favorites.includes(key);
-
-    setFavorites((prev) =>
-      prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]
-    );
-
-    trackEvent("toggle_favorite", {
-      item_id: group.code || group.name,
-      active: nextActive,
-    });
-  }
-
-  function selectCategory(nextCategory) {
-    setCategory(nextCategory);
-    setCurrentView("home");
-    setCurrentPage(1);
-    setShowCategorySheet(false);
-    scrollToCatalog();
-  }
-
-  function scrollToReviews() {
-    reviewsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function scrollToCatalog() {
@@ -2563,7 +2235,7 @@ Gracias
           background: white;
           border: 1px solid #eadbd3;
           border-radius: 18px;
-          padding: 20px 20px 170px;
+          padding: 20px;
           box-shadow: 0 8px 26px rgba(90,50,30,.10);
         }
 
@@ -3702,7 +3374,7 @@ Gracias
 
           .reviews-section {
             margin: 14px 10px 0;
-            padding: 15px 12px 190px;
+            padding: 15px 12px;
             border-radius: 16px;
           }
 
@@ -3890,742 +3562,12 @@ Gracias
             max-height: 82vh;
           }
         }
-
-        /* === V&A Style app refresh === */
-        .navbar { display: none; }
-
-        .app-header {
-          position: sticky;
-          top: 0;
-          z-index: 90;
-          display: grid;
-          grid-template-columns: 1fr auto 1fr;
-          align-items: center;
-          gap: 10px;
-          padding: 8px 18px 6px;
-          background: rgba(255,255,255,.96);
-          border-bottom: 1px solid #f4e4dd;
-          box-shadow: 0 8px 24px rgba(90,50,30,.06);
-          backdrop-filter: blur(10px);
-        }
-
-        .app-logo-wrap {
-          position: relative;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-        }
-
-        .app-logo-wrap img {
-          height: 86px;
-          width: auto;
-          object-fit: contain;
-        }
-
-        .app-logo-wrap .admin-secret {
-          position: absolute;
-          left: -18px;
-          top: 22px;
-        }
-
-        .review-chip {
-          justify-self: start;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          background: #fff7f3;
-          border: 1px solid #f0ddd6;
-          color: #7a2e3e;
-          border-radius: 18px;
-          padding: 8px 11px;
-          box-shadow: 0 8px 18px rgba(90,50,30,.07);
-        }
-
-        .review-chip strong { font-size: 14px; }
-        .review-chip small {
-          display: block;
-          color: #6e5048;
-          font-size: 11px;
-          font-weight: 900;
-          margin-top: 1px;
-        }
-
-        .review-star {
-          color: #f4b23d;
-          font-size: 25px;
-          line-height: 1;
-        }
-
-        .header-actions {
-          justify-self: end;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .advisor-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          background: transparent;
-          color: #25D366;
-          padding: 8px 6px;
-          border-radius: 12px;
-          font-size: 13px;
-          line-height: 1.08;
-          text-align: left;
-          white-space: nowrap;
-        }
-
-        .advisor-btn svg {
-          width: 35px;
-          height: 35px;
-          fill: #25D366;
-        }
-
-        .header-cart-btn {
-          position: relative;
-          background: transparent;
-          color: #7a1f33;
-          font-size: 32px;
-          padding: 6px 2px;
-        }
-
-        .cart-badge {
-          position: absolute;
-          top: 2px;
-          right: -7px;
-          min-width: 20px;
-          height: 20px;
-          display: grid;
-          place-items: center;
-          border-radius: 999px;
-          background: #c94462;
-          color: white;
-          font-size: 12px;
-          font-weight: 950;
-          border: 2px solid white;
-        }
-
-        .install-banner {
-          margin: 12px 34px 0;
-          display: grid;
-          grid-template-columns: 1fr 104px;
-          align-items: center;
-          gap: 16px;
-          padding: 16px 20px;
-          border-radius: 20px;
-          background: linear-gradient(90deg, #fff2ed 0%, #fff8f4 58%, #ffece4 100%);
-          border: 1px solid #f1ded6;
-          box-shadow: 0 10px 28px rgba(90,50,30,.08);
-        }
-
-        .install-icon {
-          width: 56px;
-          height: 56px;
-          display: grid;
-          place-items: center;
-          border-radius: 16px;
-          color: #c94462;
-          background: rgba(255,255,255,.72);
-          border: 1px solid #f0d6cd;
-          font-size: 34px;
-          font-weight: 950;
-        }
-
-        .install-copy strong {
-          display: block;
-          color: #7a1f33;
-          font-size: 25px;
-          margin-bottom: 4px;
-        }
-
-        .install-copy span {
-          color: #6b403e;
-          font-weight: 700;
-          font-size: 18px;
-        }
-
-        .install-action {
-          justify-self: end;
-          width: 92px;
-          height: 62px;
-          border-radius: 20px;
-          background: #9f1630;
-          color: white;
-          font-size: 44px;
-          line-height: 1;
-          box-shadow: 0 12px 24px rgba(159,22,48,.20);
-        }
-
-        .hero-premium {
-          position: relative;
-          margin: 10px 0 0;
-          min-height: 330px;
-          display: grid;
-          grid-template-columns: 52% 48%;
-          align-items: center;
-          overflow: hidden;
-          background: linear-gradient(90deg, #fffaf7 0%, #fff5ee 44%, #f4ded2 100%);
-          border-bottom: 1px solid #f1ded6;
-        }
-
-        .hero-premium-copy {
-          position: relative;
-          z-index: 2;
-          padding: 30px 40px;
-        }
-
-        .hero-premium-copy span {
-          display: block;
-          font-family: Georgia, serif;
-          color: #5f3b33;
-          font-size: 42px;
-          line-height: 1;
-        }
-
-        .hero-premium-copy h1 {
-          margin: 2px 0 22px;
-          font-family: Georgia, serif;
-          color: #b33150;
-          font-size: 64px;
-          line-height: .98;
-          font-weight: 700;
-          letter-spacing: -.8px;
-        }
-
-        .hero-premium-copy p {
-          margin: 0;
-          color: #4e332d;
-          font-size: 22px;
-          line-height: 1.3;
-          font-weight: 900;
-          max-width: 420px;
-        }
-
-        .hero-premium-image {
-          position: absolute;
-          right: 0;
-          top: 0;
-          bottom: 0;
-          width: 58%;
-          background-position: center right;
-          background-size: cover;
-          background-repeat: no-repeat;
-          filter: saturate(1.03);
-        }
-
-        .hero-premium-image::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(90deg, #fffaf7 0%, rgba(255,250,247,.78) 18%, rgba(255,250,247,.20) 45%, rgba(255,250,247,0) 72%);
-        }
-
-        .hero-premium-image::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background: radial-gradient(circle at 55% 85%, rgba(90,50,30,.16), transparent 36%);
-          mix-blend-mode: multiply;
-        }
-
-        .home-feature-cards {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 18px;
-          padding: 18px 38px 4px;
-        }
-
-        .home-feature-card {
-          position: relative;
-          min-height: 142px;
-          overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          text-align: left;
-          border-radius: 18px;
-          background: linear-gradient(135deg, #fff1eb 0%, #fffaf7 100%);
-          border: 1px solid #f0ddd6;
-          box-shadow: 0 10px 26px rgba(90,50,30,.08);
-          padding: 22px 18px 18px 22px;
-        }
-
-        .home-feature-card div {
-          position: relative;
-          z-index: 2;
-          max-width: 54%;
-        }
-
-        .home-feature-card strong {
-          display: block;
-          color: #8d1730;
-          font-size: 24px;
-          margin-bottom: 8px;
-        }
-
-        .home-feature-card span {
-          display: block;
-          color: #5f3b33;
-          font-size: 16px;
-          line-height: 1.25;
-          margin-bottom: 14px;
-          font-weight: 700;
-        }
-
-        .home-feature-card em {
-          display: inline-block;
-          font-style: normal;
-          background: #b21d3a;
-          color: white;
-          border-radius: 10px;
-          padding: 8px 14px;
-          font-size: 13px;
-          font-weight: 900;
-        }
-
-        .home-feature-card img {
-          position: absolute;
-          right: 0;
-          bottom: 0;
-          width: 54%;
-          height: 100%;
-          object-fit: cover;
-          object-position: center;
-        }
-
-        .home-feature-card::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(90deg, #fff3ef 0%, rgba(255,243,239,.92) 38%, rgba(255,243,239,.12) 70%, rgba(255,243,239,0) 100%);
-          pointer-events: none;
-        }
-
-        .main {
-          grid-template-columns: 1fr 330px;
-          padding-top: 20px;
-          padding-bottom: 130px;
-        }
-
-        .catalog-tools {
-          display: grid;
-          grid-template-columns: 1fr auto;
-        }
-
-        .grid {
-          grid-template-columns: repeat(3, minmax(160px, 1fr));
-        }
-
-        .card {
-          border-radius: 14px;
-        }
-
-        .card img {
-          height: 240px;
-        }
-
-        .favorite-btn {
-          position: absolute;
-          right: 10px;
-          bottom: 10px;
-          z-index: 4;
-          width: 34px;
-          height: 34px;
-          border-radius: 999px;
-          background: rgba(255,255,255,.88);
-          color: #8d1730;
-          border: 1px solid #efdcd5;
-          font-size: 23px;
-          display: grid;
-          place-items: center;
-          box-shadow: 0 6px 14px rgba(0,0,0,.08);
-        }
-
-        .favorite-btn.active {
-          background: #fff1f4;
-          color: #c94462;
-        }
-
-        .side {
-          position: sticky;
-          top: 124px;
-          align-self: start;
-        }
-
-        .floating-wa,
-        .floating-cart,
-        .floating-button {
-          display: none !important;
-        }
-
-        .bottom-nav {
-          position: fixed;
-          left: 26px;
-          right: 26px;
-          bottom: 12px;
-          z-index: 95;
-          display: grid;
-          grid-template-columns: repeat(5, 1fr);
-          align-items: center;
-          gap: 4px;
-          background: rgba(255,255,255,.96);
-          border: 1px solid #f0ddd6;
-          border-radius: 20px;
-          box-shadow: 0 12px 35px rgba(90,50,30,.16);
-          padding: 10px 8px 8px;
-          backdrop-filter: blur(10px);
-        }
-
-        .bottom-nav button {
-          position: relative;
-          display: grid;
-          place-items: center;
-          gap: 3px;
-          background: transparent;
-          color: #4b302b;
-          font-size: 12px;
-          font-weight: 900;
-        }
-
-        .bottom-nav button span {
-          font-size: 24px;
-          line-height: 1;
-        }
-
-        .bottom-nav button.active {
-          color: #c94462;
-        }
-
-        .bottom-nav em {
-          position: absolute;
-          top: 0;
-          right: 18%;
-          min-width: 19px;
-          height: 19px;
-          border-radius: 999px;
-          display: grid;
-          place-items: center;
-          background: #c94462;
-          color: #fff;
-          font-style: normal;
-          font-size: 11px;
-          border: 2px solid #fff;
-        }
-
-        .category-sheet-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(41,26,22,.35);
-          z-index: 120;
-          display: flex;
-          align-items: flex-end;
-        }
-
-        .category-sheet {
-          width: 100%;
-          background: #fffaf7;
-          border-radius: 24px 24px 0 0;
-          padding: 18px 18px 24px;
-          box-shadow: 0 -12px 40px rgba(0,0,0,.18);
-        }
-
-        .category-sheet-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 14px;
-          color: #7a1f33;
-          font-size: 20px;
-        }
-
-        .category-sheet-header button {
-          background: #fff;
-          border: 1px solid #efdcd5;
-          width: 36px;
-          height: 36px;
-          border-radius: 999px;
-          color: #7a1f33;
-          font-size: 24px;
-        }
-
-        .category-sheet-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-        }
-
-        .sheet-category {
-          background: #fff;
-          border: 1px solid #eadbd3;
-          border-radius: 14px;
-          padding: 14px;
-          color: #6e5048;
-          text-align: left;
-          font-size: 15px;
-          box-shadow: 0 6px 14px rgba(0,0,0,.04);
-        }
-
-        .sheet-category.active {
-          background: #c94462;
-          color: white;
-        }
-
-        .home-admin-block {
-          display: grid;
-          gap: 8px;
-          background: #fff7f3;
-          border: 1px solid #f0ddd6;
-          border-radius: 14px;
-          padding: 12px;
-          margin: 12px 0;
-        }
-
-        .home-admin-block img {
-          width: 100%;
-          max-height: 180px;
-          object-fit: cover;
-          border-radius: 12px;
-          border: 1px solid #eadbd3;
-        }
-
-        .admin-label {
-          display: grid;
-          gap: 6px;
-          color: #6e5048;
-          font-weight: 900;
-          margin-bottom: 10px;
-        }
-
-        .admin-check {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 10px 12px;
-          border: 1px solid #eadbd3;
-          border-radius: 12px;
-          background: #fff7f3;
-          color: #6e5048;
-          font-weight: 900;
-          margin-bottom: 8px;
-        }
-
-        .admin-check input {
-          width: auto;
-          margin: 0;
-        }
-
-        @media (max-width: 820px) {
-          .app-header {
-            grid-template-columns: 104px 1fr 154px;
-            padding: 8px 14px 6px;
-          }
-
-          .app-logo-wrap img { height: 72px; }
-          .review-chip {
-            padding: 7px 9px;
-            gap: 6px;
-          }
-
-          .review-star { font-size: 22px; }
-          .review-chip strong { font-size: 13px; }
-          .review-chip small { font-size: 10px; }
-
-          .advisor-btn {
-            font-size: 12px;
-          }
-
-          .advisor-btn svg {
-            width: 31px;
-            height: 31px;
-          }
-
-          .header-cart-btn {
-            font-size: 28px;
-          }
-
-          .install-banner {
-            margin: 10px 14px 0;
-            grid-template-columns: 1fr 76px;
-            gap: 10px;
-            padding: 12px 12px;
-            border-radius: 16px;
-          }
-
-          .install-icon {
-            width: 44px;
-            height: 44px;
-            font-size: 27px;
-            border-radius: 13px;
-          }
-
-          .install-copy strong {
-            font-size: 18px;
-          }
-
-          .install-copy span {
-            font-size: 14px;
-          }
-
-          .install-action {
-            width: 66px;
-            height: 50px;
-            font-size: 36px;
-            border-radius: 16px;
-          }
-
-          .hero-premium {
-            min-height: 260px;
-            grid-template-columns: 1fr;
-          }
-
-          .hero-premium-copy {
-            padding: 26px 22px;
-          }
-
-          .hero-premium-copy span {
-            font-size: 31px;
-          }
-
-          .hero-premium-copy h1 {
-            font-size: 48px;
-            max-width: 230px;
-            margin-bottom: 18px;
-          }
-
-          .hero-premium-copy p {
-            font-size: 19px;
-            max-width: 230px;
-          }
-
-          .hero-premium-image {
-            width: 66%;
-          }
-
-          .home-feature-cards {
-            padding: 14px 14px 4px;
-            gap: 10px;
-          }
-
-          .home-feature-card {
-            min-height: 112px;
-            padding: 14px 12px;
-            border-radius: 16px;
-          }
-
-          .home-feature-card strong {
-            font-size: 17px;
-          }
-
-          .home-feature-card span {
-            font-size: 12px;
-          }
-
-          .home-feature-card em {
-            padding: 7px 10px;
-            font-size: 11px;
-          }
-
-          .main {
-            display: block;
-            padding: 16px 14px 130px;
-          }
-
-          .catalog-tools {
-            grid-template-columns: 1fr;
-            gap: 10px;
-          }
-
-          .sort-select {
-            justify-self: center;
-            min-width: 160px;
-          }
-
-          .grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 14px;
-          }
-
-          .card img {
-            height: 176px;
-          }
-
-          .side {
-            position: static;
-            margin-top: 18px;
-          }
-
-          .bottom-nav {
-            left: 10px;
-            right: 10px;
-            bottom: 8px;
-            border-radius: 18px;
-          }
-
-          .bottom-nav button {
-            font-size: 11px;
-          }
-
-          .bottom-nav button span {
-            font-size: 22px;
-          }
-
-          .footer {
-            display: none;
-          }
-        }
-
-        @media (max-width: 430px) {
-          .app-header {
-            grid-template-columns: 90px 1fr 142px;
-          }
-
-          .app-logo-wrap img { height: 62px; }
-          .advisor-btn span { display: inline; }
-          .advisor-btn svg { width: 28px; height: 28px; }
-          .header-actions { gap: 7px; }
-
-          .hero-premium {
-            min-height: 242px;
-          }
-
-          .hero-premium-copy {
-            padding: 22px 20px;
-          }
-
-          .hero-premium-copy h1 {
-            font-size: 42px;
-            max-width: 215px;
-          }
-
-          .hero-premium-copy p {
-            font-size: 17px;
-            max-width: 200px;
-          }
-
-          .hero-premium-image {
-            width: 68%;
-          }
-        }
       `}</style>
 
       {toast && <div className="toast">{toast}</div>}
 
-      <header className="app-header">
-        <button
-          className="review-chip"
-          onClick={scrollToReviews}
-          aria-label="Ver reseñas"
-        >
-          <span className="review-star">★</span>
-          <span>
-            <strong>{reviewAverage}</strong> ({reviewCount || 324})
-            <small>Reseñas</small>
-          </span>
-        </button>
-
-        <div className="app-logo-wrap">
+      <header className="navbar">
+        <div className="logo-wrap">
           <button
             className="admin-secret"
             onClick={() => {
@@ -4644,93 +3586,33 @@ Gracias
             •
           </button>
 
-          <img src={logo} alt="V&A Style" />
+          <img src={logo} alt="V&A Style" style={{ height: "90px", objectFit: "contain" }} />
         </div>
 
-        <div className="header-actions">
-          <button
-            className="advisor-btn"
-            onClick={() => openLink("https://wa.me/524776311393")}
-          >
-            <WhatsAppIcon />
-            <span>Hablar con<br />un asesor</span>
-          </button>
+        <nav className="menu">
+          <span onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Inicio</span>
+          <span onClick={() => aboutRef.current?.scrollIntoView({ behavior: "smooth" })}>Nosotros</span>
+          <span onClick={() => contactRef.current?.scrollIntoView({ behavior: "smooth" })}>Contacto</span>
+        </nav>
 
-          <button className="header-cart-btn" onClick={scrollToCart}>
-            🛒
-            {cart.length > 0 && <span className="cart-badge">{cart.length}</span>}
+        <div className="nav-actions">
+          <button
+            className="cart-btn top-cart"
+            onClick={() =>
+              document.querySelector(".side")?.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              })
+            }
+          >
+            🛒 Carrito ({cart.length})
           </button>
         </div>
       </header>
 
-      {homeSettings.show_install_banner && (
-        <section className="install-banner">
-          <div className="install-copy">
-            <strong>{homeSettings.install_banner_title || "Instala V & A Style"}</strong>
-            <span>{homeSettings.install_banner_subtitle || "Lleva tu tienda siempre contigo"}</span>
-          </div>
-          <button className="install-action" onClick={handleInstallAppClick} aria-label="Instalar V & A Style">
-            ↓
-          </button>
-        </section>
-      )}
-
-      <section className="hero-premium">
-        <div className="hero-premium-copy">
-          <h1>{homeSettings.hero_title || DEFAULT_HOME_SETTINGS.hero_title}</h1>
-          <p>{homeSettings.hero_subtitle || DEFAULT_HOME_SETTINGS.hero_subtitle}</p>
-        </div>
-        <div
-          className="hero-premium-image"
-          style={{ backgroundImage: `url(${homeSettings.hero_image_url || FALLBACK_HOME_IMAGE})` }}
-        />
-      </section>
-
-      <section className="home-feature-cards">
-        <button
-          className="home-feature-card"
-          onClick={() => {
-            setCurrentView("novedades");
-            setSortOrder("recent");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
-        >
-          <div>
-            <strong>{homeSettings.new_arrivals_title || DEFAULT_HOME_SETTINGS.new_arrivals_title}</strong>
-            <span>{homeSettings.new_arrivals_subtitle || DEFAULT_HOME_SETTINGS.new_arrivals_subtitle}</span>
-            <em>Ver todo</em>
-          </div>
-          <img
-            src={homeSettings.new_arrivals_image_url || FALLBACK_HOME_IMAGE}
-            alt="New Arrivals V & A Style"
-            loading="lazy"
-            decoding="async"
-          />
-        </button>
-
-        <button
-          className="home-feature-card"
-          onClick={() => {
-            setCurrentView("masVendidos");
-            setCategory("Todas");
-            setSortOrder("az");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
-        >
-          <div>
-            <strong>{homeSettings.best_sellers_title || DEFAULT_HOME_SETTINGS.best_sellers_title}</strong>
-            <span>{homeSettings.best_sellers_subtitle || DEFAULT_HOME_SETTINGS.best_sellers_subtitle}</span>
-            <em>Ver todo</em>
-          </div>
-          <img
-            src={homeSettings.best_sellers_image_url || FALLBACK_HOME_IMAGE}
-            alt="Más vendidos V & A Style"
-            loading="lazy"
-            decoding="async"
-          />
-        </button>
+      <section className="hero">
+        <h1>Descubre V & A Style ✨</h1>
+        <p>✨ Estás a un paso de comenzar tu sueño</p>
       </section>
 
       {showAdmin && (
@@ -4738,15 +3620,60 @@ Gracias
           <button onClick={openAddProductModal}>➕ Agregar producto</button>
           <button onClick={openBulkUploadModal}>📦 Carga masiva</button>
           <button onClick={() => setAdminModal("showroom")}>✨ Showroom</button>
-          <button onClick={() => setAdminModal("home")}>🏠 Home</button>
           <button onClick={() => { setAdminModal("orders"); setNewOrderNotice(""); fetchOrders(); }}>🧾 Pedidos {orders.length ? `(${orders.length})` : ""}</button>
           <button onClick={() => setAdminModal("reviews")}>⭐ Reseñas ({pendingReviews.length})</button>
           <button className="logout-btn" onClick={closeAdminSession}>🚪 Cerrar sesión admin</button>
         </div>
       )}
 
+      {showroomArrivals.length > 0 && (
+        <section className="new-arrivals-section">
+          <div className="section-title-wrap">
+            <h2>✨ New Arrivals</h2>
+          </div>
+
+          <div className="new-arrivals-grid">
+            {showroomArrivals.map((item) => (
+              <div className="arrival-card" key={item.id}>
+                <img
+                  src={item.image_url}
+                  alt="Showroom V & A Style"
+                  loading="lazy"
+                  decoding="async"
+                  onClick={() =>
+                    openImage({
+                      id: item.id,
+                      image: item.image_url,
+                      name: "Showroom V & A Style",
+                      category: "Showroom",
+                      price: 0,
+                    })
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <main className="main">
         <section ref={catalogRef}>
+          <div className="filters">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                className={category === cat ? "filter active" : "filter"}
+                onClick={() => {
+                  setCategory(cat);
+                  setCurrentPage(1);
+                  scrollToCatalog();
+                }}
+              >
+                {cat === "Todas" ? "🎁 Todas" : cat === "Calzado" ? "👟 Calzado" : cat === "Hombre" ? "🧔 Hombre" : `👜 ${cat}`}
+              </button>
+            ))}
+          </div>
+
           <div className="catalog-tools">
             <input
               className="search-input"
@@ -4758,6 +3685,10 @@ Gracias
                 scrollToCatalog();
               }}
             />
+            <div className="results-count">
+              {groupedProducts.length} modelo{groupedProducts.length === 1 ? "" : "s"}
+            </div>
+
             <select
               className="sort-select"
               value={sortOrder}
@@ -4774,7 +3705,7 @@ Gracias
 
           {filtered.length === 0 ? (
             <div className="empty-results">
-              {currentView === "favoritos" ? "Todavía no tienes favoritos guardados." : "No encontramos productos con esa búsqueda."}
+              No encontramos productos con esa búsqueda.
             </div>
           ) : (
             <>
@@ -4788,17 +3719,6 @@ Gracias
                     {getDiscountPercent(group.discountPercent) > 0 && (
                       <div className="discount-badge">-{getDiscountPercent(group.discountPercent)}%</div>
                     )}
-
-                    <button
-                      className={isFavoriteGroup(group) ? "favorite-btn active" : "favorite-btn"}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavoriteGroup(group);
-                      }}
-                      aria-label="Agregar a favoritos"
-                    >
-                      {isFavoriteGroup(group) ? "♥" : "♡"}
-                    </button>
 
                     <img
                       src={group.image}
@@ -5010,7 +3930,7 @@ Gracias
         </div>
       </section>
 
-      <section className="reviews-section" ref={reviewsRef}>
+      <section className="reviews-section">
         <div className="section-title-wrap">
           <h2>⭐ Opiniones de nuestros clientes</h2>
           <p>Experiencias reales de clientes V & A Style.</p>
@@ -5201,30 +4121,6 @@ Gracias
                     {showAdmin && (
                       <div style={{ marginTop: "10px" }}>
                         <button
-                          className="cart-btn"
-                          style={{ width: "100%", marginBottom: "8px" }}
-                          onClick={() => toggleNewArrival(variant)}
-                        >
-                          {variant.isNewArrival ? "Quitar novedad" : "Marcar novedad"}
-                        </button>
-
-                        <button
-                          className="cart-btn"
-                          style={{ width: "100%", marginBottom: "8px" }}
-                          onClick={() => toggleBestSeller(variant)}
-                        >
-                          {variant.isBestSeller ? "Quitar más vendido" : "Marcar más vendido"}
-                        </button>
-
-                        <button
-                          className="cart-btn"
-                          style={{ width: "100%", marginBottom: "8px" }}
-                          onClick={() => toggleHomeFeatured(variant)}
-                        >
-                          {variant.isHomeFeatured ? "Quitar destacado" : "Marcar destacado"}
-                        </button>
-
-                        <button
                           className="pink-btn"
                           style={{ width: "100%", marginBottom: "8px" }}
                           onClick={() => startEditProduct(variant)}
@@ -5399,32 +4295,6 @@ Gracias
               onChange={(e) => setNewProduct({ ...newProduct, discount_percent: e.target.value })}
             />
 
-            <label className="admin-check">
-              <input
-                type="checkbox"
-                checked={Boolean(newProduct.isNewArrival)}
-                onChange={(e) => setNewProduct({ ...newProduct, isNewArrival: e.target.checked })}
-              />
-              Novedad / New Arrival
-            </label>
-
-            <label className="admin-check">
-              <input
-                type="checkbox"
-                checked={Boolean(newProduct.isBestSeller)}
-                onChange={(e) => setNewProduct({ ...newProduct, isBestSeller: e.target.checked })}
-              />
-              Más vendido
-            </label>
-
-            <label className="admin-check">
-              <input
-                type="checkbox"
-                checked={Boolean(newProduct.isHomeFeatured)}
-                onChange={(e) => setNewProduct({ ...newProduct, isHomeFeatured: e.target.checked })}
-              />
-              Destacado Home
-            </label>
 
             <input
               type="file"
@@ -5506,35 +4376,6 @@ Gracias
               onChange={(e) => setBulkUpload({ ...bulkUpload, discount_percent: e.target.value })}
             />
 
-            <label className="admin-check">
-              <input
-                type="checkbox"
-                checked={Boolean(bulkUpload.isNewArrival)}
-                disabled={bulkUpload.uploading}
-                onChange={(e) => setBulkUpload({ ...bulkUpload, isNewArrival: e.target.checked })}
-              />
-              Marcar lote como Novedad
-            </label>
-
-            <label className="admin-check">
-              <input
-                type="checkbox"
-                checked={Boolean(bulkUpload.isBestSeller)}
-                disabled={bulkUpload.uploading}
-                onChange={(e) => setBulkUpload({ ...bulkUpload, isBestSeller: e.target.checked })}
-              />
-              Marcar lote como Más vendido
-            </label>
-
-            <label className="admin-check">
-              <input
-                type="checkbox"
-                checked={Boolean(bulkUpload.isHomeFeatured)}
-                disabled={bulkUpload.uploading}
-                onChange={(e) => setBulkUpload({ ...bulkUpload, isHomeFeatured: e.target.checked })}
-              />
-              Marcar lote como Destacado Home
-            </label>
 
             <input
               type="file"
@@ -5564,123 +4405,6 @@ Gracias
             {bulkUpload.progress && (
               <div className="bulk-progress">{bulkUpload.progress}</div>
             )}
-          </div>
-        </div>
-      )}
-
-      {showAdmin && adminModal === "home" && (
-        <div className="modal-overlay" onClick={closeAdminModal}>
-          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="admin-modal-header">
-              <h3>🏠 Editar pantalla principal</h3>
-              <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
-            </div>
-
-            <label className="admin-label">
-              Mostrar banner de instalación
-              <select
-                value={homeSettings.show_install_banner ? "true" : "false"}
-                onChange={(e) =>
-                  setHomeSettings({ ...homeSettings, show_install_banner: e.target.value === "true" })
-                }
-              >
-                <option value="true">Sí</option>
-                <option value="false">No</option>
-              </select>
-            </label>
-
-            <input
-              placeholder="Título del banner de instalación"
-              value={homeSettings.install_banner_title || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, install_banner_title: e.target.value })}
-            />
-
-            <input
-              placeholder="Subtítulo del banner de instalación"
-              value={homeSettings.install_banner_subtitle || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, install_banner_subtitle: e.target.value })}
-            />
-
-            <input
-              placeholder="Título banner principal"
-              value={homeSettings.hero_title || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, hero_title: e.target.value })}
-            />
-
-            <input
-              placeholder="Subtítulo banner principal"
-              value={homeSettings.hero_subtitle || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, hero_subtitle: e.target.value })}
-            />
-
-            <input
-              placeholder="Título New Arrivals"
-              value={homeSettings.new_arrivals_title || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, new_arrivals_title: e.target.value })}
-            />
-
-            <input
-              placeholder="Subtítulo New Arrivals"
-              value={homeSettings.new_arrivals_subtitle || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, new_arrivals_subtitle: e.target.value })}
-            />
-
-            <input
-              placeholder="Título Más vendidos"
-              value={homeSettings.best_sellers_title || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, best_sellers_title: e.target.value })}
-            />
-
-            <input
-              placeholder="Subtítulo Más vendidos"
-              value={homeSettings.best_sellers_subtitle || ""}
-              onChange={(e) => setHomeSettings({ ...homeSettings, best_sellers_subtitle: e.target.value })}
-            />
-
-            <div className="home-admin-block">
-              <strong>Banner principal</strong>
-              {(homeSettings.hero_image_url || FALLBACK_HOME_IMAGE) && (
-                <img src={homeSettings.hero_image_url || FALLBACK_HOME_IMAGE} alt="Banner principal" />
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setHomeForm({ ...homeForm, heroFile: e.target.files[0] || null })}
-              />
-            </div>
-
-            <div className="home-admin-block">
-              <strong>New Arrivals</strong>
-              {(homeSettings.new_arrivals_image_url || FALLBACK_HOME_IMAGE) && (
-                <img src={homeSettings.new_arrivals_image_url || FALLBACK_HOME_IMAGE} alt="New Arrivals" />
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setHomeForm({ ...homeForm, newArrivalsFile: e.target.files[0] || null })}
-              />
-            </div>
-
-            <div className="home-admin-block">
-              <strong>Más vendidos</strong>
-              {(homeSettings.best_sellers_image_url || FALLBACK_HOME_IMAGE) && (
-                <img src={homeSettings.best_sellers_image_url || FALLBACK_HOME_IMAGE} alt="Más vendidos" />
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setHomeForm({ ...homeForm, bestSellersFile: e.target.files[0] || null })}
-              />
-            </div>
-
-            <button
-              className="pink-btn"
-              style={{ width: "100%" }}
-              onClick={saveHomeSettings}
-              disabled={homeForm.saving}
-            >
-              {homeForm.saving ? "Guardando..." : "Guardar pantalla principal"}
-            </button>
           </div>
         </div>
       )}
@@ -5857,78 +4581,6 @@ Gracias
           </div>
         </div>
       )}
-
-      {showCategorySheet && (
-        <div className="category-sheet-overlay" onClick={() => setShowCategorySheet(false)}>
-          <div className="category-sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="category-sheet-header">
-              <strong>Categorías</strong>
-              <button onClick={() => setShowCategorySheet(false)}>×</button>
-            </div>
-            <div className="category-sheet-grid">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  className={category === cat ? "sheet-category active" : "sheet-category"}
-                  onClick={() => selectCategory(cat)}
-                >
-                  {cat === "Todas" ? "🎁 Todas" : cat === "Calzado" ? "👟 Calzado" : cat === "Hombre" ? "🧔 Hombre" : `👜 ${cat}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <nav className="bottom-nav">
-        <button
-          className={currentView === "home" ? "active" : ""}
-          onClick={() => {
-            setCurrentView("home");
-            setCategory("Todas");
-            setCurrentPage(1);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-        >
-          <span>🏠</span>
-          Inicio
-        </button>
-        <button onClick={() => setShowCategorySheet(true)}>
-          <span>▦</span>
-          Categorías
-        </button>
-        <button
-          className={currentView === "novedades" ? "active" : ""}
-          onClick={() => {
-            setCurrentView("novedades");
-            setCategory("Todas");
-            setSortOrder("recent");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
-        >
-          <span>✨</span>
-          Novedades
-        </button>
-        <button
-          className={currentView === "favoritos" ? "active" : ""}
-          onClick={() => {
-            setCurrentView("favoritos");
-            setCategory("Todas");
-            setCurrentPage(1);
-            scrollToCatalog();
-          }}
-        >
-          <span>♡</span>
-          Favoritos
-          {favorites.length > 0 && <em>{favorites.length}</em>}
-        </button>
-        <button onClick={scrollToCart}>
-          <span>🛒</span>
-          Carrito
-          {cart.length > 0 && <em>{cart.length}</em>}
-        </button>
-      </nav>
 
       <footer className="footer">
         <span>✨ Aquí empieza tu camino para emprender</span>
