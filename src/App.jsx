@@ -3,6 +3,13 @@ import logo from "./assets/5EBEC563-AD5B-47FB-AFE9-482289C13B90.jpg";
 import { useState, useEffect, useRef } from "react";
 import CommunityFeed from "./CommunityFeed";
 import CommunityAdmin from "./CommunityAdmin";
+import AdminLogin from "./AdminLogin";
+import {
+  getAdminSession,
+  signOutAdmin,
+  subscribeToAdminSession,
+  verifyAdminSession,
+} from "./adminAuth";
 
 const categories = [
   "Todas",
@@ -28,7 +35,6 @@ const ADVISOR_NUMBERS = ["524779177633", "524821357950"];
 const CART_STORAGE_KEY = "vaStyleCart";
 const ORDER_SENT_KEY = "vaStyleOrderSent";
 const LAST_ADVISOR_KEY = "vaStyleLastAdvisor";
-const ADMIN_SESSION_KEY = "vaStyleAdminSession";
 const TEST_FREE_SHIPPING = false;
 const MERCADO_PAGO_TEST_MODE = false;
 const MERCADO_PAGO_MINIMUM_ITEMS = MERCADO_PAGO_TEST_MODE ? 1 : 6;
@@ -537,14 +543,9 @@ export default function App() {
       return [];
     }
   });
-  const [showAdmin, setShowAdmin] = useState(() => {
-    try {
-      if (typeof window === "undefined") return false;
-      return localStorage.getItem(ADMIN_SESSION_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminAuthLoading, setAdminAuthLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState(null);
   const [toast, setToast] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -602,8 +603,6 @@ export default function App() {
   const dragRef = useRef(null);
   const toastTimerRef = useRef(null);
   const randomTopProductGroupsRef = useRef([]);
-
-  const ADMIN_PASSWORD = "vanda2025";
 
   const [newProduct, setNewProduct] = useState({
     name: "",
@@ -710,6 +709,55 @@ export default function App() {
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function restoreAdminSession() {
+      try {
+        const session = await getAdminSession();
+        if (!session) return;
+
+        const admin = await verifyAdminSession(session);
+        if (active) setShowAdmin(Boolean(admin));
+      } catch (error) {
+        console.error("No fue posible restaurar la sesión administrativa:", error);
+        if (active) setShowAdmin(false);
+      } finally {
+        if (active) setAdminAuthLoading(false);
+      }
+    }
+
+    void restoreAdminSession();
+
+    const unsubscribe = subscribeToAdminSession((event, session) => {
+      if (!active) return;
+
+      if (event === "SIGNED_OUT" || !session) {
+        setShowAdmin(false);
+        setAdminModal(null);
+        setAdminAuthLoading(false);
+        return;
+      }
+
+      window.setTimeout(async () => {
+        try {
+          const admin = await verifyAdminSession(session);
+          if (active) setShowAdmin(Boolean(admin));
+        } catch (error) {
+          console.error("La sesión no tiene acceso administrativo:", error);
+          if (active) setShowAdmin(false);
+        } finally {
+          if (active) setAdminAuthLoading(false);
+        }
+      }, 0);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
     };
   }, []);
 
@@ -1404,11 +1452,17 @@ export default function App() {
     setEditingProduct(null);
   }
 
-  function closeAdminSession() {
-    localStorage.removeItem(ADMIN_SESSION_KEY);
-    setShowAdmin(false);
-    setAdminModal(null);
-    setEditingProduct(null);
+  async function closeAdminSession() {
+    try {
+      await signOutAdmin();
+    } catch (error) {
+      console.error("No fue posible cerrar la sesión administrativa:", error);
+    } finally {
+      setShowAdmin(false);
+      setShowAdminLogin(false);
+      setAdminModal(null);
+      setEditingProduct(null);
+    }
   }
 
   async function saveProduct() {
@@ -4843,6 +4897,16 @@ Gracias
 
       {toast && <div className="toast">{toast}</div>}
 
+      {showAdminLogin && !showAdmin && (
+        <AdminLogin
+          onAuthenticated={() => {
+            setShowAdmin(true);
+            setShowAdminLogin(false);
+          }}
+          onClose={() => setShowAdminLogin(false)}
+        />
+      )}
+
       <header className="app-header">
         <button
           className="review-chip"
@@ -4861,16 +4925,11 @@ Gracias
             className="admin-secret"
             onClick={() => {
               if (showAdmin) return;
-
-              const password = prompt("Contraseña admin");
-              if (password === ADMIN_PASSWORD) {
-                localStorage.setItem(ADMIN_SESSION_KEY, "true");
-                setShowAdmin(true);
-              } else {
-                alert("Contraseña incorrecta");
-              }
+              setShowAdminLogin(true);
             }}
-            title="Admin"
+            disabled={adminAuthLoading}
+            title={adminAuthLoading ? "Verificando sesión" : "Admin"}
+            aria-label="Abrir acceso administrativo"
           >
             •
           </button>
