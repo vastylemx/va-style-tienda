@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
+import { adminFetch } from "./adminApi";
 
 const COMMUNITY_MEDIA_BUCKET = "community-media";
 const MAX_POST_TEXT_LENGTH = 200;
@@ -155,65 +156,44 @@ export default function CommunityAdmin({ onClose }) {
 
     const mediaType = getMediaType(file);
     const extension = getFileExtension(file, mediaType);
-    const uniqueId = typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const storagePath = `posts/${uniqueId}.${extension}`;
-
     try {
+      const uploadAuthorization = await adminFetch("/api/admin/community-upload-url", {
+        method: "POST",
+        body: JSON.stringify({
+          mediaType,
+          extension,
+          contentType: file.type,
+        }),
+      });
+
+      if (!uploadAuthorization?.storagePath || !uploadAuthorization?.token) {
+        throw new Error("No se pudo preparar la subida del archivo.");
+      }
+
+      const storagePath = uploadAuthorization.storagePath;
+
       const { error: uploadError } = await supabase.storage
         .from(COMMUNITY_MEDIA_BUCKET)
-        .upload(storagePath, file, {
+        .uploadToSignedUrl(storagePath, uploadAuthorization.token, file, {
           contentType: file.type,
-          upsert: false,
         });
 
       if (uploadError) throw uploadError;
 
-      const { data: publicUrlData } = supabase.storage
-        .from(COMMUNITY_MEDIA_BUCKET)
-        .getPublicUrl(storagePath);
-
-      let { data: createdPost, error: insertError } = await supabase
-        .from("community_posts")
-        .insert({
-          media_url: publicUrlData.publicUrl,
-          media_type: mediaType,
+      const creationResult = await adminFetch("/api/admin/community-post", {
+        method: "POST",
+        body: JSON.stringify({
+          storagePath,
+          mediaType,
           text: cleanText,
-          advisor_line: advisorLine,
-          active: true,
-          likes_count: 0,
-          whatsapp_clicks: 0,
-          views_count: 0,
-          created_at: new Date().toISOString(),
-        })
-        .select(POST_FIELDS)
-        .single();
+          advisorLine,
+        }),
+      });
 
-      if (insertError && isMissingPinnedColumn(insertError)) {
-        const fallbackResponse = await supabase
-          .from("community_posts")
-          .insert({
-            media_url: publicUrlData.publicUrl,
-            media_type: mediaType,
-            text: cleanText,
-            advisor_line: advisorLine,
-            active: true,
-            likes_count: 0,
-            whatsapp_clicks: 0,
-            views_count: 0,
-            created_at: new Date().toISOString(),
-          })
-          .select(POST_FIELDS_FALLBACK)
-          .single();
+      const createdPost = creationResult?.post;
 
-        createdPost = fallbackResponse.data ? { ...fallbackResponse.data, is_pinned: false } : null;
-        insertError = fallbackResponse.error;
-      }
-
-      if (insertError) {
-        await supabase.storage.from(COMMUNITY_MEDIA_BUCKET).remove([storagePath]);
-        throw insertError;
+      if (!creationResult?.ok || !createdPost) {
+        throw new Error("La base de datos no confirmó la publicación.");
       }
 
       setPosts((currentPosts) => sortAdminPosts([{ ...createdPost, is_pinned: Boolean(createdPost.is_pinned) }, ...currentPosts]));
@@ -273,58 +253,27 @@ export default function CommunityAdmin({ onClose }) {
     setError("");
     setMessage("");
 
-    if (!nextPinned) {
-      const { error: unpinError } = await supabase
-        .from("community_posts")
-        .update({ is_pinned: false })
-        .eq("id", post.id);
+    try {
+      const result = await adminFetch("/api/admin/community-pin", {
+        method: "POST",
+        body: JSON.stringify({
+          postId: post.id,
+          isPinned: nextPinned,
+        }),
+      });
 
-      if (unpinError) {
-        console.error("No fue posible desfijar la publicación en Supabase:", unpinError);
-        setError("No se pudo desfijar la publicación.");
-        setBusyPostId(null);
-        return;
+      if (!result?.ok || !result?.post || Boolean(result.post.is_pinned) !== nextPinned) {
+        throw new Error("La base de datos no confirmó el cambio de publicación fijada.");
       }
 
       await loadPosts();
-      setMessage("Publicación desfijada.");
+      setMessage(nextPinned ? "Publicación fijada arriba del feed." : "Publicación desfijada.");
+    } catch (pinError) {
+      console.error("No fue posible cambiar la publicación fijada:", pinError);
+      setError(pinError?.message || "No se pudo cambiar la publicación fijada.");
+    } finally {
       setBusyPostId(null);
-      return;
     }
-
-    const { error: unpinAllError } = await supabase
-      .from("community_posts")
-      .update({ is_pinned: false })
-      .eq("is_pinned", true);
-
-    if (unpinAllError) {
-      console.error("Supabase error al quitar publicaciones fijadas:", unpinAllError);
-      setError("No se pudieron quitar otras publicaciones fijadas.");
-      setBusyPostId(null);
-      return;
-    }
-
-    const result = await supabase
-      .from("community_posts")
-      .update({
-        is_pinned: true,
-        active: true,
-      })
-      .eq("id", post.id)
-      .select();
-
-    const pinError = result.error;
-
-    if (pinError) {
-      console.error(pinError);
-      setError("No se pudo fijar la publicación.");
-      setBusyPostId(null);
-      return;
-    }
-
-    await loadPosts();
-    setMessage("Publicación fijada arriba del feed.");
-    setBusyPostId(null);
   }
 
   async function deletePost(post) {
