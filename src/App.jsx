@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 import logo from "./assets/5EBEC563-AD5B-47FB-AFE9-482289C13B90.jpg";
 import { useState, useEffect, useRef } from "react";
+import CommunityFeed from "./CommunityFeed";
+import CommunityAdmin from "./CommunityAdmin";
 
 const categories = [
   "Todas",
@@ -16,6 +18,8 @@ const categories = [
 ];
 
 const PRODUCTS_PER_PAGE = 20;
+const TEST_COMMUNITY = false;
+const COMMUNITY_UNREAD_COUNT = 1; // TODO: reemplazar por conteo real de novedades/comunidad.
 
 const BETA_MODE = true;
 const BETA_WHATSAPP_NUMBER = "524776311393";
@@ -501,6 +505,7 @@ function TikTokIcon() {
 }
 
 export default function App() {
+  const [showCommunity, setShowCommunity] = useState(TEST_COMMUNITY);
   const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [showroomItems, setShowroomItems] = useState([]);
@@ -2302,6 +2307,17 @@ Gracias
     window.location.assign(url);
   }
 
+  if (showCommunity) {
+    return (
+      <CommunityFeed
+        onBackToStore={() => {
+          setShowCommunity(false);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      />
+    );
+  }
+
   return (
     <div className="page">
       <style>{`
@@ -4087,7 +4103,9 @@ Gracias
           justify-self: end;
           display: flex;
           align-items: center;
+          flex-wrap: nowrap;
           gap: 12px;
+          min-width: 0;
         }
 
         .advisor-btn {
@@ -4108,6 +4126,44 @@ Gracias
           width: 35px;
           height: 35px;
           fill: #25D366;
+        }
+
+        .community-header-btn {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          border: 1px solid #f0ddd6;
+          border-radius: 999px;
+          background: #fff7f3;
+          color: #7a2e3e;
+          padding: 9px 12px;
+          font-size: 13px;
+          font-weight: 950;
+          line-height: 1;
+          white-space: nowrap;
+          box-shadow: 0 8px 18px rgba(90,50,30,.07);
+        }
+
+        .community-header-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 22px rgba(90,50,30,.1);
+        }
+
+        .community-header-badge {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          min-width: 17px;
+          height: 17px;
+          display: grid;
+          place-items: center;
+          border-radius: 999px;
+          background: #c94462;
+          color: white;
+          border: 2px solid white;
+          font-size: 10px;
+          font-weight: 950;
         }
 
         .header-cart-btn {
@@ -4545,31 +4601,46 @@ Gracias
 
         @media (max-width: 820px) {
           .app-header {
-            grid-template-columns: 104px 1fr 154px;
-            padding: 8px 14px 6px;
+            grid-template-columns: auto auto minmax(0, 1fr);
+            gap: 8px;
+            padding: 7px 10px 6px;
           }
 
-          .app-logo-wrap img { height: 72px; }
+          .app-logo-wrap img { height: 58px; }
           .review-chip {
-            padding: 7px 9px;
-            gap: 6px;
+            padding: 6px 7px;
+            gap: 5px;
+            border-radius: 14px;
           }
 
-          .review-star { font-size: 22px; }
-          .review-chip strong { font-size: 13px; }
-          .review-chip small { font-size: 10px; }
+          .review-star { font-size: 18px; }
+          .review-chip strong { font-size: 12px; }
+          .review-chip small { display: none; }
+
+          .header-actions {
+            gap: 7px;
+            justify-content: flex-end;
+          }
 
           .advisor-btn {
-            font-size: 12px;
+            gap: 4px;
+            padding: 7px 4px;
+            font-size: 11px;
+          }
+
+          .community-header-btn {
+            padding: 8px 9px;
+            font-size: 11px;
           }
 
           .advisor-btn svg {
-            width: 31px;
-            height: 31px;
+            width: 26px;
+            height: 26px;
           }
 
           .header-cart-btn {
-            font-size: 28px;
+            font-size: 26px;
+            padding: 6px 0;
           }
 
           .install-banner {
@@ -4705,13 +4776,46 @@ Gracias
 
         @media (max-width: 430px) {
           .app-header {
-            grid-template-columns: 90px 1fr 142px;
+            grid-template-columns: auto auto minmax(0, 1fr);
+            gap: 6px;
+            padding-inline: 8px;
           }
 
-          .app-logo-wrap img { height: 62px; }
+          .app-logo-wrap img { height: 48px; }
           .advisor-btn span { display: inline; }
-          .advisor-btn svg { width: 28px; height: 28px; }
-          .header-actions { gap: 7px; }
+          .advisor-btn svg { width: 23px; height: 23px; }
+          .header-actions { gap: 5px; }
+          .advisor-btn {
+            font-size: 10px;
+            padding: 6px 2px;
+          }
+          .community-header-btn {
+            padding: 7px 8px;
+            font-size: 10px;
+          }
+          .header-cart-btn {
+            font-size: 24px;
+          }
+          .cart-badge {
+            min-width: 17px;
+            height: 17px;
+            font-size: 10px;
+            right: -6px;
+          }
+          .community-header-badge {
+            min-width: 15px;
+            height: 15px;
+            font-size: 9px;
+          }
+          .review-chip {
+            padding: 5px 6px;
+          }
+          .review-star {
+            font-size: 16px;
+          }
+          .review-chip strong {
+            font-size: 11px;
+          }
 
           .hero-premium {
             min-height: 242px;
@@ -4781,6 +4885,20 @@ Gracias
           >
             <WhatsAppIcon />
             <span>Hablar con<br />un asesor</span>
+          </button>
+
+          <button
+            className="community-header-btn"
+            onClick={() => {
+              setShowCommunity(true);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            aria-label="Abrir Comunidad V&A Style"
+          >
+            Comunidad 🔔
+            {COMMUNITY_UNREAD_COUNT > 0 && (
+              <span className="community-header-badge">{COMMUNITY_UNREAD_COUNT}</span>
+            )}
           </button>
 
           <button className="header-cart-btn" onClick={scrollToCart}>
@@ -4855,6 +4973,7 @@ Gracias
           <button onClick={openBulkUploadModal}>📦 Carga masiva</button>
           <button onClick={() => setAdminModal("showroom")}>✨ Showroom</button>
           <button onClick={() => setAdminModal("home")}>🏠 Home</button>
+          <button onClick={() => setAdminModal("community")}>💬 Comunidad</button>
           <button onClick={() => { setAdminModal("orders"); setNewOrderNotice(""); fetchOrders(); }}>🧾 Pedidos {orders.length ? `(${orders.length})` : ""}</button>
           <button onClick={() => setAdminModal("reviews")}>⭐ Reseñas ({pendingReviews.length})</button>
           <button className="logout-btn" onClick={closeAdminSession}>🚪 Cerrar sesión admin</button>
@@ -5439,6 +5558,10 @@ Gracias
       )}
 
 
+
+      {showAdmin && adminModal === "community" && (
+        <CommunityAdmin onClose={closeAdminModal} />
+      )}
 
       {showAdmin && adminModal === "product" && (
         <div className="modal-overlay" onClick={closeAdminModal}>
