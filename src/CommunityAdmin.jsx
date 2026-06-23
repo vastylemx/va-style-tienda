@@ -5,6 +5,8 @@ const COMMUNITY_MEDIA_BUCKET = "community-media";
 const MAX_POST_TEXT_LENGTH = 200;
 const COMMUNITY_DELETE_PASSWORD_KEY = "vaStyleCommunityDeletePassword";
 const POST_FIELDS =
+  "id, media_url, media_type, text, advisor_line, active, is_pinned, likes_count, whatsapp_clicks, created_at";
+const POST_FIELDS_FALLBACK =
   "id, media_url, media_type, text, advisor_line, active, likes_count, whatsapp_clicks, created_at";
 
 function isSupportedMedia(file) {
@@ -30,6 +32,20 @@ function isVideoPost(post) {
   return String(post.media_type || "").toLowerCase().startsWith("video");
 }
 
+function isMissingPinnedColumn(error) {
+  const message = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`.toLowerCase();
+  return message.includes("is_pinned") || error?.code === "42703";
+}
+
+function sortAdminPosts(posts) {
+  return [...posts].sort((firstPost, secondPost) => {
+    const pinnedDifference = Number(Boolean(secondPost.is_pinned)) - Number(Boolean(firstPost.is_pinned));
+    if (pinnedDifference !== 0) return pinnedDifference;
+
+    return new Date(secondPost.created_at || 0).getTime() - new Date(firstPost.created_at || 0).getTime();
+  });
+}
+
 export default function CommunityAdmin({ onClose }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,16 +64,26 @@ export default function CommunityAdmin({ onClose }) {
     setLoading(true);
     setError("");
 
-    const { data, error: loadError } = await supabase
+    let { data, error: loadError } = await supabase
       .from("community_posts")
       .select(POST_FIELDS)
       .order("created_at", { ascending: false });
+
+    if (loadError && isMissingPinnedColumn(loadError)) {
+      const fallbackResponse = await supabase
+        .from("community_posts")
+        .select(POST_FIELDS_FALLBACK)
+        .order("created_at", { ascending: false });
+
+      data = (fallbackResponse.data || []).map((post) => ({ ...post, is_pinned: false }));
+      loadError = fallbackResponse.error;
+    }
 
     if (loadError) {
       console.error("No fue posible cargar las publicaciones de Comunidad:", loadError);
       setError("No se pudieron cargar las publicaciones.");
     } else {
-      setPosts(data || []);
+      setPosts(sortAdminPosts(data || []));
     }
 
     setLoading(false);
@@ -148,7 +174,7 @@ export default function CommunityAdmin({ onClose }) {
         .from(COMMUNITY_MEDIA_BUCKET)
         .getPublicUrl(storagePath);
 
-      const { data: createdPost, error: insertError } = await supabase
+      let { data: createdPost, error: insertError } = await supabase
         .from("community_posts")
         .insert({
           media_url: publicUrlData.publicUrl,
@@ -164,12 +190,33 @@ export default function CommunityAdmin({ onClose }) {
         .select(POST_FIELDS)
         .single();
 
+      if (insertError && isMissingPinnedColumn(insertError)) {
+        const fallbackResponse = await supabase
+          .from("community_posts")
+          .insert({
+            media_url: publicUrlData.publicUrl,
+            media_type: mediaType,
+            text: cleanText,
+            advisor_line: advisorLine,
+            active: true,
+            likes_count: 0,
+            whatsapp_clicks: 0,
+            views_count: 0,
+            created_at: new Date().toISOString(),
+          })
+          .select(POST_FIELDS_FALLBACK)
+          .single();
+
+        createdPost = fallbackResponse.data ? { ...fallbackResponse.data, is_pinned: false } : null;
+        insertError = fallbackResponse.error;
+      }
+
       if (insertError) {
         await supabase.storage.from(COMMUNITY_MEDIA_BUCKET).remove([storagePath]);
         throw insertError;
       }
 
-      setPosts((currentPosts) => [createdPost, ...currentPosts]);
+      setPosts((currentPosts) => sortAdminPosts([{ ...createdPost, is_pinned: Boolean(createdPost.is_pinned) }, ...currentPosts]));
       resetForm();
       setShowForm(false);
       setMessage("Publicación creada correctamente.");
@@ -183,13 +230,16 @@ export default function CommunityAdmin({ onClose }) {
 
   async function togglePostVisibility(post) {
     const nextActive = !post.active;
+    const updatePayload = { active: nextActive };
+    if (!nextActive && post.is_pinned) updatePayload.is_pinned = false;
+
     setBusyPostId(post.id);
     setError("");
     setMessage("");
 
     const { error: updateError } = await supabase
       .from("community_posts")
-      .update({ active: nextActive })
+      .update(updatePayload)
       .eq("id", post.id);
 
     if (updateError) {
@@ -197,13 +247,83 @@ export default function CommunityAdmin({ onClose }) {
       setError("No se pudo cambiar la visibilidad de la publicación.");
     } else {
       setPosts((currentPosts) =>
-        currentPosts.map((currentPost) =>
-          currentPost.id === post.id ? { ...currentPost, active: nextActive } : currentPost
+        sortAdminPosts(
+          currentPosts.map((currentPost) =>
+            currentPost.id === post.id
+              ? { ...currentPost, active: nextActive, is_pinned: nextActive ? currentPost.is_pinned : false }
+              : currentPost
+          )
         )
       );
       setMessage(nextActive ? "Publicación visible en el feed." : "Publicación ocultada.");
     }
 
+    setBusyPostId(null);
+  }
+
+  async function togglePinnedPost(post) {
+    if (!post?.id) {
+      console.error("Post sin id para fijar:", post);
+      return;
+    }
+
+    const nextPinned = !post.is_pinned;
+
+    setBusyPostId(post.id);
+    setError("");
+    setMessage("");
+
+    if (!nextPinned) {
+      const { error: unpinError } = await supabase
+        .from("community_posts")
+        .update({ is_pinned: false })
+        .eq("id", post.id);
+
+      if (unpinError) {
+        console.error("No fue posible desfijar la publicación en Supabase:", unpinError);
+        setError("No se pudo desfijar la publicación.");
+        setBusyPostId(null);
+        return;
+      }
+
+      await loadPosts();
+      setMessage("Publicación desfijada.");
+      setBusyPostId(null);
+      return;
+    }
+
+    const { error: unpinAllError } = await supabase
+      .from("community_posts")
+      .update({ is_pinned: false })
+      .eq("is_pinned", true);
+
+    if (unpinAllError) {
+      console.error("Supabase error al quitar publicaciones fijadas:", unpinAllError);
+      setError("No se pudieron quitar otras publicaciones fijadas.");
+      setBusyPostId(null);
+      return;
+    }
+
+    const result = await supabase
+      .from("community_posts")
+      .update({
+        is_pinned: true,
+        active: true,
+      })
+      .eq("id", post.id)
+      .select();
+
+    const pinError = result.error;
+
+    if (pinError) {
+      console.error(pinError);
+      setError("No se pudo fijar la publicación.");
+      setBusyPostId(null);
+      return;
+    }
+
+    await loadPosts();
+    setMessage("Publicación fijada arriba del feed.");
     setBusyPostId(null);
   }
 
@@ -221,12 +341,8 @@ export default function CommunityAdmin({ onClose }) {
     setError("");
     setMessage("");
 
-    console.log("[CommunityAdmin] Eliminando publicación:", { postId: post.id });
-
     let deleteResult = null;
     let deleteError = null;
-    let responseStatus = null;
-    let responseStatusText = "";
 
     try {
       const response = await fetch("/api/community-delete-post", {
@@ -238,15 +354,7 @@ export default function CommunityAdmin({ onClose }) {
         }),
       });
 
-      responseStatus = response.status;
-      responseStatusText = response.statusText;
       deleteResult = await response.json().catch(() => null);
-
-      console.log("[CommunityAdmin] Respuesta completa endpoint community-delete-post:", {
-        status: response.status,
-        statusText: response.statusText,
-        body: deleteResult,
-      });
 
       const deletedCount = Array.isArray(deleteResult?.deletedPosts)
         ? deleteResult.deletedPosts.length
@@ -271,19 +379,6 @@ export default function CommunityAdmin({ onClose }) {
     } catch (requestError) {
       deleteError = requestError;
     }
-
-    console.log("[CommunityAdmin] Resultado DELETE community_posts:", {
-      postId: post.id,
-      deletedPosts: deleteResult?.deletedPosts || [],
-      deletedCount: Array.isArray(deleteResult?.deletedPosts) ? deleteResult.deletedPosts.length : 0,
-      confirmedDeleted: deleteResult?.confirmedDeleted,
-      error: deleteError,
-      status: responseStatus,
-      statusText: responseStatusText,
-      storagePath: deleteResult?.storagePath,
-      storageDeleted: deleteResult?.storageDeleted,
-      storageError: deleteResult?.storageError,
-    });
 
     const deletedCount = Array.isArray(deleteResult?.deletedPosts)
       ? deleteResult.deletedPosts.length
@@ -442,6 +537,7 @@ export default function CommunityAdmin({ onClose }) {
           font-weight: 900;
         }
         .community-admin__badge.is-inactive { background: #eee9e6; color: #73645f; }
+        .community-admin__badge.is-pinned { background: #fff1f4; color: #8d1730; }
         .community-admin__text {
           margin: 7px 0;
           color: #4e332d;
@@ -467,6 +563,7 @@ export default function CommunityAdmin({ onClose }) {
           font-size: 11px;
         }
         .community-admin__post-actions .is-delete { background: #fff1f4; color: #a72f4d; }
+        .community-admin__post-actions .is-pinned-action { background: #fff1f4; color: #8d1730; }
         @media (max-width: 520px) {
           .community-admin-overlay { align-items: stretch; padding: 0; }
           .community-admin { max-height: 100vh; padding: 14px; border-radius: 0; }
@@ -569,6 +666,9 @@ export default function CommunityAdmin({ onClose }) {
                     <span className={`community-admin__badge${post.active ? "" : " is-inactive"}`}>
                       {post.active ? "Activa" : "Inactiva"}
                     </span>
+                    {post.is_pinned && (
+                      <span className="community-admin__badge is-pinned">📌 Fijada</span>
+                    )}
                   </div>
                   <p className="community-admin__text">{post.text || "Sin texto"}</p>
                   <div className="community-admin__metrics">
@@ -582,6 +682,14 @@ export default function CommunityAdmin({ onClose }) {
                       disabled={busyPostId === post.id}
                     >
                       {post.active ? "Ocultar" : "Mostrar"}
+                    </button>
+                    <button
+                      className={post.is_pinned ? "is-pinned-action" : ""}
+                      type="button"
+                      onClick={() => togglePinnedPost(post)}
+                      disabled={busyPostId === post.id}
+                    >
+                      {post.is_pinned ? "Desfijar" : "Fijar publicación"}
                     </button>
                     <button
                       className="is-delete"

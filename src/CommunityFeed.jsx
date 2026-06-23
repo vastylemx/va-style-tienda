@@ -4,6 +4,10 @@ import logo from "./assets/5EBEC563-AD5B-47FB-AFE9-482289C13B90.jpg";
 
 const DEVICE_ID_STORAGE_KEY = "vaStyleCommunityDeviceId";
 const COMMUNITY_MEDIA_BUCKET = "community-media";
+const COMMUNITY_POST_FIELDS =
+  "id, media_url, media_type, text, advisor_line, likes_count, whatsapp_clicks, views_count, active, is_pinned, created_at";
+const COMMUNITY_POST_FIELDS_FALLBACK =
+  "id, media_url, media_type, text, advisor_line, likes_count, whatsapp_clicks, views_count, active, created_at";
 const WHATSAPP_MESSAGE =
   "Hola, vi una publicación en Comunidad V&A Style y me gustaría recibir más información.";
 
@@ -46,6 +50,24 @@ function isVideoPost(post) {
   if (mediaType.startsWith("video") || mediaType === "video") return true;
 
   return /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(post.media_url || "");
+}
+
+function isMissingPinnedColumn(error) {
+  const message = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`.toLowerCase();
+  return message.includes("is_pinned") || error?.code === "42703";
+}
+
+function isPinnedPost(post) {
+  return post?.is_pinned === true || String(post?.is_pinned).toLowerCase() === "true";
+}
+
+function sortCommunityPosts(posts) {
+  return [...posts].sort((firstPost, secondPost) => {
+    if (isPinnedPost(firstPost) && !isPinnedPost(secondPost)) return -1;
+    if (!isPinnedPost(firstPost) && isPinnedPost(secondPost)) return 1;
+
+    return new Date(secondPost.created_at || 0).getTime() - new Date(firstPost.created_at || 0).getTime();
+  });
 }
 
 function formatRelativeDate(value, now) {
@@ -160,11 +182,23 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
     setLoading(true);
     setError("");
 
-    const { data, error: postsError } = await supabase
+    let { data, error: postsError } = await supabase
       .from("community_posts")
-      .select("id, media_url, media_type, text, advisor_line, likes_count, whatsapp_clicks, views_count, active, created_at")
+      .select(COMMUNITY_POST_FIELDS)
       .eq("active", true)
+      .order("is_pinned", { ascending: false })
       .order("created_at", { ascending: false });
+
+    if (postsError && isMissingPinnedColumn(postsError)) {
+      const fallbackResponse = await supabase
+        .from("community_posts")
+        .select(COMMUNITY_POST_FIELDS_FALLBACK)
+        .eq("active", true)
+        .order("created_at", { ascending: false });
+
+      data = (fallbackResponse.data || []).map((post) => ({ ...post, is_pinned: false }));
+      postsError = fallbackResponse.error;
+    }
 
     if (postsError) {
       console.error("No fue posible cargar Comunidad V&A Style:", postsError);
@@ -173,7 +207,7 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
       return;
     }
 
-    const nextPosts = data || [];
+    const nextPosts = sortCommunityPosts(data || []);
     setPosts(nextPosts);
 
     if (nextPosts.length > 0) {
@@ -497,6 +531,10 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
     }
   }
 
+  const activePosts = posts.filter((post) => post.active !== false);
+  const sortedPosts = sortCommunityPosts(activePosts);
+  const visiblePosts = sortedPosts;
+
   return (
     <section className="community-feed" aria-labelledby="community-feed-title">
       <style>{`
@@ -604,7 +642,8 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
           line-height: 1.45;
         }
         .community-feed__list {
-          display: grid;
+          display: flex;
+          flex-direction: column;
           width: 100%;
           margin: 0 auto;
           gap: 14px;
@@ -615,6 +654,9 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
           border: 1px solid #f1ded6;
           border-radius: 16px;
           box-shadow: 0 9px 26px rgba(90, 50, 30, .1);
+        }
+        .community-post.is-pinned {
+          order: -1;
         }
         .community-post__media-wrap {
           position: relative;
@@ -692,6 +734,19 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
           outline-offset: 2px;
         }
         .community-post__body { padding: 12px 14px 14px; }
+        .community-post__pinned-label {
+          display: inline-flex;
+          align-items: center;
+          width: fit-content;
+          margin-bottom: 9px;
+          padding: 5px 9px;
+          border-radius: 999px;
+          background: #fff1f4;
+          color: #8d1730;
+          font-size: 11px;
+          font-weight: 950;
+          letter-spacing: .01em;
+        }
         .community-post__actions {
           display: flex;
           align-items: center;
@@ -856,7 +911,7 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
         <p>Novedades, ideas y piezas seleccionadas para hacer crecer tu estilo.</p>
       </div>
 
-      {error && !loading && posts.length > 0 && (
+      {error && !loading && visiblePosts.length > 0 && (
         <div className="community-feed__error-banner" role="status">{error}</div>
       )}
 
@@ -864,27 +919,27 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
         <div className="community-feed__status" role="status">
           <p>Cargando publicaciones…</p>
         </div>
-      ) : error && posts.length === 0 ? (
+      ) : error && visiblePosts.length === 0 ? (
         <div className="community-feed__status" role="alert">
           <p>{error}</p>
           <button className="community-feed__retry" type="button" onClick={loadFeed}>
             Reintentar
           </button>
         </div>
-      ) : posts.length === 0 ? (
+      ) : visiblePosts.length === 0 ? (
         <div className="community-feed__status">
           <p>Pronto encontrarás nuevas publicaciones aquí.</p>
         </div>
       ) : (
         <div className="community-feed__list">
-          {posts.map((post) => {
+          {visiblePosts.map((post) => {
             const postKey = String(post.id);
             const isLiked = likedPostIds.has(postKey);
             const isPending = pendingPostIds.has(postKey);
             const mediaUrl = getMediaUrl(post.media_url);
 
             return (
-              <article className="community-post" key={post.id}>
+              <article className={`community-post${isPinnedPost(post) ? " is-pinned" : ""}`} key={post.id}>
                 <div className={`community-post__media-wrap${isVideoPost(post) ? " is-video" : ""}`}>
                   {isVideoPost(post) ? (
                     <>
@@ -946,6 +1001,12 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
                 </div>
 
                 <div className="community-post__body">
+                  {post.is_pinned && (
+                    <div className="community-post__pinned-label" aria-label="Publicación fijada">
+                      📌 Publicación fijada
+                    </div>
+                  )}
+
                   <div className="community-post__actions">
                     <button
                       className={`community-post__like${isLiked ? " is-liked" : ""}`}
