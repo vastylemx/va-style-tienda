@@ -151,6 +151,7 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
   const [autoplayFailedPostIds, setAutoplayFailedPostIds] = useState(() => new Set());
   const [globalMuted, setGlobalMuted] = useState(true);
   const [videoDimensions, setVideoDimensions] = useState({});
+  const [imageDimensions, setImageDimensions] = useState({});
   const videoRefs = useRef(new Map());
   const globalMutedRef = useRef(true);
   const videoPostKeys = posts.filter(isVideoPost).map((post) => String(post.id)).join("|");
@@ -431,6 +432,22 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
     });
   }
 
+  function handleImageLoad(postKey, postId, image) {
+    const width = Number(image.naturalWidth) || 16;
+    const height = Number(image.naturalHeight) || 9;
+    const aspectRatio = width / height;
+    const format = height > width ? "vertical" : aspectRatio > 1.05 ? "horizontal" : "square";
+    const nextDimensions = { width, height, aspectRatio, format };
+
+    setImageDimensions((current) => {
+      const savedDimensions = current[postKey];
+      if (savedDimensions?.width === width && savedDimensions?.height === height) return current;
+      return { ...current, [postKey]: nextDimensions };
+    });
+
+    handleMediaLoaded(postId);
+  }
+
   async function retryVideoPlayback(postKey) {
     const video = videoRefs.current.get(postKey);
     if (!video) return;
@@ -613,6 +630,12 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
           aspect-ratio: 16 / 9;
           background: #f7ebe6;
           object-fit: cover;
+          object-position: center;
+        }
+        .community-post__image.is-vertical {
+          background: #F1EEE8;
+          object-fit: contain;
+          object-position: center;
         }
         .community-post__video {
           height: auto;
@@ -907,12 +930,17 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
                     </>
                   ) : (
                     <img
-                      className="community-post__media community-post__image"
+                      className={`community-post__media community-post__image${
+                        imageDimensions[postKey]?.format === "vertical" ? " is-vertical" : ""
+                      }`}
+                      style={imageDimensions[postKey]?.format === "vertical"
+                        ? { aspectRatio: `${imageDimensions[postKey].width} / ${imageDimensions[postKey].height}` }
+                        : undefined}
                       src={mediaUrl}
                       alt={post.text ? post.text.slice(0, 120) : "Publicación de Comunidad V&A Style"}
                       loading="lazy"
                       decoding="async"
-                      onLoad={() => handleMediaLoaded(post.id)}
+                      onLoad={(event) => handleImageLoad(postKey, post.id, event.currentTarget)}
                     />
                   )}
                 </div>

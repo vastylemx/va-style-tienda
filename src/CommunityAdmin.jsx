@@ -41,6 +41,7 @@ export default function CommunityAdmin({ onClose }) {
   const [advisorLine, setAdvisorLine] = useState("1");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [imagePreviewDimensions, setImagePreviewDimensions] = useState({});
   const fileInputRef = useRef(null);
 
   const loadPosts = useCallback(async () => {
@@ -89,6 +90,18 @@ export default function CommunityAdmin({ onClose }) {
     }
 
     setFile(nextFile);
+  }
+
+  function handlePreviewImageLoad(postId, image) {
+    const width = Number(image.naturalWidth) || 1;
+    const height = Number(image.naturalHeight) || 1;
+    const format = height > width ? "vertical" : width > height ? "horizontal" : "square";
+
+    setImagePreviewDimensions((current) => {
+      const savedDimensions = current[postId];
+      if (savedDimensions?.width === width && savedDimensions?.height === height) return current;
+      return { ...current, [postId]: { width, height, format } };
+    });
   }
 
   async function publishPost(event) {
@@ -411,6 +424,11 @@ export default function CommunityAdmin({ onClose }) {
           border-radius: 10px;
           background: #f7ebe6;
           object-fit: cover;
+          object-position: center;
+        }
+        .community-admin__media.is-vertical {
+          background: #F1EEE8;
+          object-fit: contain;
         }
         .community-admin__post-top { align-items: flex-start; }
         .community-admin__post-top strong { color: #7a4050; font-size: 12px; }
@@ -534,7 +552,15 @@ export default function CommunityAdmin({ onClose }) {
                 {isVideoPost(post) ? (
                   <video className="community-admin__media" src={post.media_url} controls muted preload="metadata" />
                 ) : (
-                  <img className="community-admin__media" src={post.media_url} alt="Vista previa de publicación" loading="lazy" />
+                  <img
+                    className={`community-admin__media${
+                      imagePreviewDimensions[post.id]?.format === "vertical" ? " is-vertical" : ""
+                    }`}
+                    src={post.media_url}
+                    alt="Vista previa de publicación"
+                    loading="lazy"
+                    onLoad={(event) => handlePreviewImageLoad(post.id, event.currentTarget)}
+                  />
                 )}
 
                 <div>
