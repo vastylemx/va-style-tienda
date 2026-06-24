@@ -11,6 +11,12 @@ const COMMUNITY_POST_FIELDS_FALLBACK =
 const WHATSAPP_MESSAGE =
   "Hola, vi una publicación en Comunidad V&A Style y me gustaría recibir más información.";
 
+const trackGA4 = (eventName, params = {}) => {
+  if (typeof window !== "undefined" && typeof window.gtag === "function") {
+    window.gtag("event", eventName, params);
+  }
+};
+
 function createDeviceId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -175,8 +181,14 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
   const [videoDimensions, setVideoDimensions] = useState({});
   const [imageDimensions, setImageDimensions] = useState({});
   const videoRefs = useRef(new Map());
+  const postRefs = useRef(new Map());
   const globalMutedRef = useRef(true);
+  const viewedPostIdsRef = useRef(new Set());
+  const playedVideoPostIdsRef = useRef(new Set());
+  const completedVideoPostIdsRef = useRef(new Set());
+  const communityViewTrackedRef = useRef(false);
   const videoPostKeys = posts.filter(isVideoPost).map((post) => String(post.id)).join("|");
+  const communityPostKeys = posts.map((post) => String(post.id)).join("|");
 
   const loadFeed = useCallback(async () => {
     setLoading(true);
@@ -239,9 +251,51 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
   }, [loadFeed]);
 
   useEffect(() => {
+    if (communityViewTrackedRef.current) return;
+
+    communityViewTrackedRef.current = true;
+    trackGA4("community_view", { section: "community" });
+  }, []);
+
+  useEffect(() => {
     const timerId = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timerId);
   }, []);
+
+  useEffect(() => {
+    if (loading || posts.length === 0 || typeof IntersectionObserver === "undefined") {
+      return undefined;
+    }
+
+    const postsById = new Map(posts.map((post) => [String(post.id), post]));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting || entry.intersectionRatio < 0.5) return;
+
+          const postId = entry.target.dataset.communityPostId;
+          if (!postId || viewedPostIdsRef.current.has(postId)) return;
+
+          const post = postsById.get(postId);
+          if (!post) return;
+
+          viewedPostIdsRef.current.add(postId);
+          trackGA4("community_post_view", {
+            post_id: post.id,
+            media_type: post.media_type || (post.video_url ? "video" : "image"),
+          });
+          observer.unobserve(entry.target);
+        });
+      },
+      { threshold: [0.5] }
+    );
+
+    postRefs.current.forEach((element, postId) => {
+      if (!viewedPostIdsRef.current.has(postId)) observer.observe(element);
+    });
+
+    return () => observer.disconnect();
+  }, [loading, communityPostKeys, posts]);
 
   useEffect(() => {
     if (loading) return undefined;
@@ -427,6 +481,9 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
       setError("No pudimos guardar tu like. Intenta nuevamente.");
     } else {
       setError("");
+      trackGA4(wasLiked ? "community_unlike" : "community_like", {
+        post_id: post.id,
+      });
       await syncLikesCount(post.id, optimisticCount);
     }
 
@@ -438,6 +495,11 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
   }
 
   function openWhatsapp(post) {
+    trackGA4("community_whatsapp_click", {
+      post_id: post.id,
+      advisor_line: post.whatsapp_line || post.advisor_line || "unknown",
+    });
+
     const advisorWhatsapp = getAdvisorWhatsapp(post.advisor_line);
     const encodedMessage = encodeURIComponent(WHATSAPP_MESSAGE);
     const whatsappUrl = advisorWhatsapp
@@ -464,6 +526,32 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
       if (savedDimensions?.width === width && savedDimensions?.height === height) return current;
       return { ...current, [postKey]: nextDimensions };
     });
+  }
+
+  function handleVideoPlay(postId) {
+    const postKey = String(postId);
+    if (playedVideoPostIdsRef.current.has(postKey)) return;
+
+    playedVideoPostIdsRef.current.add(postKey);
+    trackGA4("community_video_play", { post_id: postId });
+  }
+
+  function handleVideoComplete(postId) {
+    const postKey = String(postId);
+    if (completedVideoPostIdsRef.current.has(postKey)) return;
+
+    completedVideoPostIdsRef.current.add(postKey);
+    trackGA4("community_video_complete", { post_id: postId });
+  }
+
+  function handleVideoProgress(postId, video) {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+    if (video.currentTime / video.duration >= 0.95) handleVideoComplete(postId);
+  }
+
+  function handleReturnToStore() {
+    trackGA4("community_return_store", { source: "community" });
+    onBackToStore?.();
   }
 
   function handleImageLoad(postKey, postId, image) {
@@ -939,7 +1027,15 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
             const mediaUrl = getMediaUrl(post.media_url);
 
             return (
-              <article className={`community-post${isPinnedPost(post) ? " is-pinned" : ""}`} key={post.id}>
+              <article
+                ref={(element) => {
+                  if (element) postRefs.current.set(postKey, element);
+                  else postRefs.current.delete(postKey);
+                }}
+                className={`community-post${isPinnedPost(post) ? " is-pinned" : ""}`}
+                data-community-post-id={postKey}
+                key={post.id}
+              >
                 <div className={`community-post__media-wrap${isVideoPost(post) ? " is-video" : ""}`}>
                   {isVideoPost(post) ? (
                     <>
@@ -962,6 +1058,9 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
                         preload="metadata"
                         onLoadedMetadata={(event) => handleVideoMetadata(postKey, event.currentTarget)}
                         onLoadedData={() => handleMediaLoaded(post.id)}
+                        onPlay={() => handleVideoPlay(post.id)}
+                        onEnded={() => handleVideoComplete(post.id)}
+                        onTimeUpdate={(event) => handleVideoProgress(post.id, event.currentTarget)}
                       />
                       {autoplayFailedPostIds.has(postKey) && (
                         <button
@@ -1042,7 +1141,7 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
       )}
 
       <footer className="community-feed__footer">
-        <button className="community-feed__store-button" type="button" onClick={onBackToStore}>
+        <button className="community-feed__store-button" type="button" onClick={handleReturnToStore}>
           ← Volver a tienda
         </button>
       </footer>
