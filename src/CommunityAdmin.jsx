@@ -4,7 +4,6 @@ import { adminFetch } from "./adminApi";
 
 const COMMUNITY_MEDIA_BUCKET = "community-media";
 const MAX_POST_TEXT_LENGTH = 200;
-const COMMUNITY_DELETE_PASSWORD_KEY = "vaStyleCommunityDeletePassword";
 const POST_FIELDS =
   "id, media_url, media_type, text, advisor_line, active, is_pinned, likes_count, whatsapp_clicks, created_at";
 const POST_FIELDS_FALLBACK =
@@ -279,75 +278,34 @@ export default function CommunityAdmin({ onClose }) {
   async function deletePost(post) {
     if (!window.confirm("¿Eliminar esta publicación de Comunidad?")) return;
 
-    let adminPassword = window.sessionStorage.getItem(COMMUNITY_DELETE_PASSWORD_KEY) || "";
-    if (!adminPassword) {
-      adminPassword = window.prompt("Contraseña admin para eliminar publicaciones") || "";
-      if (!adminPassword) return;
-      window.sessionStorage.setItem(COMMUNITY_DELETE_PASSWORD_KEY, adminPassword);
-    }
-
     setBusyPostId(post.id);
     setError("");
     setMessage("");
 
-    let deleteResult = null;
-    let deleteError = null;
-
     try {
-      const response = await fetch("/api/community-delete-post", {
+      const deleteResult = await adminFetch("/api/admin/community-delete", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           postId: post.id,
-          adminPassword,
         }),
       });
-
-      deleteResult = await response.json().catch(() => null);
 
       const deletedCount = Array.isArray(deleteResult?.deletedPosts)
         ? deleteResult.deletedPosts.length
         : 0;
-      const deleteSucceeded =
-        response.ok &&
-        deleteResult?.ok === true &&
-        deleteResult?.confirmedDeleted === true &&
-        deletedCount > 0;
 
-      if (!deleteSucceeded) {
-        deleteError = deleteResult || {
-          error: "No se pudo eliminar la publicación.",
-          status: response.status,
-          statusText: response.statusText,
-        };
-
-        if (response.status === 401) {
-          window.sessionStorage.removeItem(COMMUNITY_DELETE_PASSWORD_KEY);
-        }
+      if (deleteResult?.ok !== true || deleteResult?.confirmedDeleted !== true || deletedCount !== 1) {
+        throw new Error("No se pudo confirmar el borrado real de la publicación en Supabase.");
       }
-    } catch (requestError) {
-      deleteError = requestError;
-    }
 
-    const deletedCount = Array.isArray(deleteResult?.deletedPosts)
-      ? deleteResult.deletedPosts.length
-      : 0;
-
-    if (deleteError || deleteResult?.ok !== true || deleteResult?.confirmedDeleted !== true || deletedCount === 0) {
+      setPosts((currentPosts) => currentPosts.filter((currentPost) => currentPost.id !== post.id));
+      setMessage(deleteResult.storageWarning || "Publicación eliminada.");
+    } catch (deleteError) {
       console.error("[CommunityAdmin] Error DELETE community_posts:", deleteError);
-      setError(
-        deleteError?.error ||
-          deleteError?.message ||
-          "No se pudo confirmar el borrado real de la publicación en Supabase."
-      );
+      setError(deleteError?.message || "No se pudo eliminar la publicación.");
+    } finally {
       setBusyPostId(null);
-      return;
     }
-
-    setPosts((currentPosts) => currentPosts.filter((currentPost) => currentPost.id !== post.id));
-    setMessage("Publicación eliminada.");
-
-    setBusyPostId(null);
   }
 
   return (
