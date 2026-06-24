@@ -28,10 +28,6 @@ const PRODUCTS_PER_PAGE = 20;
 const TEST_COMMUNITY = false;
 const COMMUNITY_UNREAD_COUNT = 1; // TODO: reemplazar por conteo real de novedades/comunidad.
 
-const BETA_MODE = true;
-const BETA_WHATSAPP_NUMBER = "524776311393";
-const ADVISOR_NUMBERS = ["524779177633", "524821357950"];
-
 const CART_STORAGE_KEY = "vaStyleCart";
 const ORDER_SENT_KEY = "vaStyleOrderSent";
 const LAST_ADVISOR_KEY = "vaStyleLastAdvisor";
@@ -590,6 +586,9 @@ export default function App() {
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "" });
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [advisorOrderModalOpen, setAdvisorOrderModalOpen] = useState(false);
+  const [advisorOrderForm, setAdvisorOrderForm] = useState({ name: "", phone: "" });
+  const [advisorOrderLoading, setAdvisorOrderLoading] = useState(false);
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [newOrderNotice, setNewOrderNotice] = useState("");
@@ -778,7 +777,9 @@ export default function App() {
             const customerName = payload.new?.customer_name || "Nuevo cliente";
             setNewOrderNotice(`Nuevo pedido recibido: ${customerName}`);
             showToast("Nuevo pedido recibido 🛍️");
-            sendTelegramOrderNotification(payload.new, "🛍️ Nuevo pedido creado");
+            if (payload.new?.payment_method !== "asesor") {
+              sendTelegramOrderNotification(payload.new, "🛍️ Nuevo pedido creado");
+            }
           }
 
         }
@@ -1984,34 +1985,6 @@ export default function App() {
     );
   }
 
-  async function getSelectedWhatsAppNumber() {
-    if (BETA_MODE) {
-      localStorage.setItem(LAST_ADVISOR_KEY, BETA_WHATSAPP_NUMBER);
-      return BETA_WHATSAPP_NUMBER;
-    }
-
-    const savedAdvisor = localStorage.getItem(LAST_ADVISOR_KEY);
-
-    if (savedAdvisor) {
-      return savedAdvisor;
-    }
-
-    const { data: nextIndex, error: rotationError } = await supabase.rpc(
-      "get_next_whatsapp_index",
-      { total_numbers: ADVISOR_NUMBERS.length }
-    );
-
-    if (rotationError) {
-      console.log(rotationError);
-      throw new Error("Error asignando asesor. Intenta de nuevo.");
-    }
-
-    const selectedNumber = ADVISOR_NUMBERS[nextIndex];
-    localStorage.setItem(LAST_ADVISOR_KEY, selectedNumber);
-
-    return selectedNumber;
-  }
-
   function openMercadoPagoModal() {
     if (!cart.length) {
       alert("Tu carrito está vacío.");
@@ -2173,92 +2146,129 @@ export default function App() {
     }
   }
 
-  async function sendWhatsApp() {
+  function openAdvisorOrderModal() {
     if (cart.length < 6) {
       alert("Pedido mínimo: 6 piezas.");
       return;
     }
 
-    const customerName = prompt("Nombre del cliente:");
-    if (!customerName || !customerName.trim()) return;
+    setAdvisorOrderForm({ name: "", phone: "" });
+    setAdvisorOrderModalOpen(true);
+  }
 
-    let selectedNumber;
+  function closeAdvisorOrderModal() {
+    if (advisorOrderLoading) return;
+    setAdvisorOrderModalOpen(false);
+  }
 
-    try {
-      selectedNumber = await getSelectedWhatsAppNumber();
-    } catch (error) {
-      alert(error.message);
+  async function submitAdvisorOrder() {
+    const customerName = advisorOrderForm.name.trim();
+    const customerPhone = advisorOrderForm.phone.trim();
+
+    if (!customerName) {
+      alert("Escribe tu nombre.");
       return;
     }
 
-    const isAdditionalOrder = localStorage.getItem(ORDER_SENT_KEY) === "true";
-
-    const productsText = getCartSummary(cart)
-      .map((item, index) => {
-        const modelText = item.modelCode || item.name;
-        const colorText = item.variantColor ? ` / Color: ${item.variantColor}` : "";
-        const brandText = item.brand ? ` / ${item.brand}` : "";
-        const sizeText = item.selectedSize ? ` / Talla: ${item.selectedSize}` : "";
-        const discountText = item.discountPercent ? ` / Desc. ${item.discountPercent}%` : "";
-        const quantityText = item.quantity > 1 ? ` x${item.quantity}` : "";
-
-        return `${index + 1}. ${modelText}${colorText}${brandText}${sizeText}${discountText}${quantityText} - $${formatMoney(item.price * item.quantity)} MXN`;
-      })
-      .join("\n");
-
-   const message = `
-Hola, quiero hacer este pedido en V & A Style
-
-${isAdditionalOrder ? "AGREGADO A PEDIDO ANTERIOR\n" : ""}DATOS DEL CLIENTE
-Nombre: ${customerName.trim()}
-
-PEDIDO
-${productsText}
-
-SUBTOTAL: $${formatMoney(subtotal)} MXN
-${volumeDiscount > 0 ? `DESCUENTO MAYOREO 5%: -$${formatMoney(volumeDiscount)} MXN
-` : ""}${needsShippingQuote
-  ? `ENVÍO A DOMICILIO: Pedidos de más de 40 piezas se cotizan directamente con tu asesora.`
-  : `ENVÍO A DOMICILIO: $${formatMoney(shippingAndPaymentCost)} MXN`
-}
-TOTAL FINAL: ${needsShippingQuote ? "Por confirmar con tu asesora." : `$${formatMoney(total)} MXN`}
-
-Gracias
-`;
-
-    trackEvent("send_whatsapp_order", {
-      items: cart.length,
-      subtotal,
-      discount: volumeDiscount,
-      shipping_units: shippingUnits,
-      shipping_cost: shippingCost || 0,
-      service_fee: serviceFee,
-      value: total,
-      currency: "MXN",
-    });
-
-    localStorage.setItem(ORDER_SENT_KEY, "true");
-
-    const encodedMessage = encodeURIComponent(message);
-    const appUrl = `whatsapp://send?phone=${selectedNumber}&text=${encodedMessage}`;
-    const webUrl = `https://wa.me/${selectedNumber}?text=${encodedMessage}`;
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-    if (isMobile) {
-      window.location.assign(appUrl);
-
-      setTimeout(() => {
-        window.location.assign(webUrl);
-      }, 1200);
-    } else {
-      window.location.assign(webUrl);
+    if (!customerPhone) {
+      alert("Escribe tu teléfono.");
+      return;
     }
 
-    setCart([]);
-    localStorage.removeItem(CART_STORAGE_KEY);
-    localStorage.removeItem(ORDER_SENT_KEY);
-    localStorage.removeItem(LAST_ADVISOR_KEY);
-    showToast("Pedido enviado ✅ Carrito limpiado");
+    if (!cart.length) {
+      alert("Tu carrito está vacío.");
+      return;
+    }
+
+    setAdvisorOrderLoading(true);
+
+    try {
+      const items = getCartSummary(cart).map((item) => ({
+        code: item.modelCode || getProductInfo(item).code || item.name,
+        name: item.name || item.modelCode || "Producto",
+        color: item.variantColor || "",
+        size: item.selectedSize || "",
+        quantity: item.quantity,
+        unitPrice: getCleanPrice(item.price),
+      }));
+
+      console.log("ETAPA 1 - Submit pedido asesor:", {
+        customerName,
+        customerPhone: customerPhone.replace(/\d(?=\d{4})/g, "•"),
+        itemCount: items.length,
+        totalPieces: items.reduce((sum, item) => sum + item.quantity, 0),
+        subtotal,
+        volumeDiscount,
+        shippingCost: shippingCost || 0,
+        needsShippingQuote,
+        total,
+      });
+
+      console.log("ETAPA 2 - Fetch /api/send-advisor-order iniciado");
+      const response = await fetch("/api/send-advisor-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName,
+          customerPhone,
+          items,
+          subtotal,
+          volumeDiscount,
+          shippingCost: shippingCost || 0,
+          needsShippingQuote,
+          total,
+        }),
+      });
+      const responseText = await response.text();
+      let result = null;
+
+      try {
+        result = responseText ? JSON.parse(responseText) : null;
+      } catch (parseError) {
+        console.error("ERROR ETAPA 2 - Respuesta no es JSON:", {
+          parseError,
+          status: response.status,
+          contentType: response.headers.get("content-type"),
+          responsePreview: responseText.slice(0, 300),
+        });
+      }
+
+      console.log("ETAPA 2 - Respuesta /api/send-advisor-order:", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get("content-type"),
+        data: result,
+      });
+
+      if (!response.ok || result?.ok !== true) {
+        const endpointMessage =
+          result?.error ||
+          `El endpoint respondió ${response.status} ${response.statusText || ""}`.trim();
+        throw new Error(endpointMessage);
+      }
+
+      trackEvent("send_advisor_order", {
+        items: cart.length,
+        value: total,
+        currency: "MXN",
+      });
+
+      setAdvisorOrderModalOpen(false);
+      setAdvisorOrderForm({ name: "", phone: "" });
+      setCart([]);
+      localStorage.removeItem(CART_STORAGE_KEY);
+      localStorage.removeItem(ORDER_SENT_KEY);
+      localStorage.removeItem(LAST_ADVISOR_KEY);
+      alert(
+        "✅ Tu pedido fue enviado correctamente.\nEn unos momentos un asesor de V & A Style te contactará por WhatsApp."
+      );
+    } catch (error) {
+      console.error("ERROR ETAPA 1 - Submit pedido asesor:", error);
+      alert(error?.message || "No se pudo enviar el pedido. Intenta nuevamente.");
+    } finally {
+      setAdvisorOrderLoading(false);
+    }
   }
 
   function getFavoriteKey(group) {
@@ -5224,9 +5234,8 @@ Gracias
                     </p>
                   )}
 
-                  <button className="whatsapp-order-btn" onClick={sendWhatsApp}>
-                    <WhatsAppIcon />
-                    Enviar pedido a asesor por WhatsApp
+                  <button className="whatsapp-order-btn" onClick={openAdvisorOrderModal}>
+                    Enviar pedido a un asesor
                   </button>
                 </>
               )}
@@ -5432,6 +5441,69 @@ Gracias
               </button>
               <button className="mercadopago-btn" onClick={startMercadoPagoCheckout} disabled={checkoutLoading}>
                 {checkoutLoading ? "Creando pago..." : "Continuar al pago"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {advisorOrderModalOpen && (
+        <div className="modal-overlay" onClick={closeAdvisorOrderModal}>
+          <div className="checkout-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>Enviar pedido a un asesor</h3>
+              <button
+                className="modal-close-btn"
+                onClick={closeAdvisorOrderModal}
+                disabled={advisorOrderLoading}
+              >
+                ×
+              </button>
+            </div>
+
+            <p>
+              Déjanos tus datos y un asesor de V & A Style te contactará por WhatsApp.
+            </p>
+
+            <input
+              type="text"
+              placeholder="Nombre"
+              value={advisorOrderForm.name}
+              onChange={(event) =>
+                setAdvisorOrderForm((current) => ({ ...current, name: event.target.value }))
+              }
+              disabled={advisorOrderLoading}
+            />
+
+            <input
+              type="tel"
+              inputMode="tel"
+              placeholder="Teléfono"
+              value={advisorOrderForm.phone}
+              onChange={(event) =>
+                setAdvisorOrderForm((current) => ({ ...current, phone: event.target.value }))
+              }
+              disabled={advisorOrderLoading}
+            />
+
+            <div className="checkout-total">
+              Total estimado: ${formatMoney(total)} MXN
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="secondary-btn"
+                onClick={closeAdvisorOrderModal}
+                disabled={advisorOrderLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                className="whatsapp-order-btn"
+                onClick={submitAdvisorOrder}
+                disabled={advisorOrderLoading}
+              >
+                {advisorOrderLoading ? "Enviando pedido..." : "Enviar pedido"}
               </button>
             </div>
           </div>
