@@ -8,6 +8,10 @@ const ALLOWED_EXTENSIONS = {
   image: new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"]),
   video: new Set(["mp4", "webm", "mov", "m4v", "ogg"]),
 };
+const MAX_FILE_BYTES = {
+  image: 10 * 1024 * 1024,
+  video: 15 * 1024 * 1024,
+};
 
 export default async function handler(req, res) {
   try {
@@ -19,15 +23,23 @@ export default async function handler(req, res) {
     const mediaType = String(req.body?.mediaType || "").toLowerCase();
     const extension = String(req.body?.extension || "").toLowerCase();
     const contentType = String(req.body?.contentType || "").toLowerCase();
+    const fileSize = Number(req.body?.fileSize);
     const allowedExtensions = ALLOWED_EXTENSIONS[mediaType];
+    const maxFileBytes = MAX_FILE_BYTES[mediaType];
 
     if (
       !allowedExtensions?.has(extension) ||
-      !contentType.startsWith(`${mediaType}/`)
+      !contentType.startsWith(`${mediaType}/`) ||
+      !Number.isFinite(fileSize) ||
+      fileSize <= 0 ||
+      fileSize > maxFileBytes
     ) {
       return sendJson(res, 400, {
         ok: false,
-        error: "El tipo de archivo no es válido.",
+        error:
+          mediaType === "video"
+            ? "El video comprimido debe pesar 15 MB o menos."
+            : "La imagen debe pesar 10 MB o menos.",
       });
     }
 

@@ -10,6 +10,10 @@ const MEDIA_EXTENSIONS = {
   image: new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"]),
   video: new Set(["mp4", "webm", "mov", "m4v", "ogg"]),
 };
+const MAX_FILE_BYTES = {
+  image: 10 * 1024 * 1024,
+  video: 15 * 1024 * 1024,
+};
 
 function isValidCommunityPath(value) {
   return /^posts\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[a-z0-9]{1,10}$/i.test(
@@ -73,6 +77,7 @@ export default async function handler(req, res) {
       });
     const storedFile = storedFiles?.find((file) => file.name === storageFileName);
     const storedContentType = String(storedFile?.metadata?.mimetype || "").toLowerCase();
+    const storedFileSize = Number(storedFile?.metadata?.size || 0);
 
     if (storageError || !storedFile) {
       console.error("[admin/community-post] Archivo no encontrado en community-media:", storageError);
@@ -83,9 +88,25 @@ export default async function handler(req, res) {
     }
 
     if (storedContentType && !storedContentType.startsWith(`${mediaType}/`)) {
+      await supabaseAdmin.storage.from(COMMUNITY_MEDIA_BUCKET).remove([storagePath]);
       return sendJson(res, 400, {
         ok: false,
         error: "El archivo subido no coincide con el tipo de publicación.",
+      });
+    }
+
+    if (
+      !Number.isFinite(storedFileSize) ||
+      storedFileSize <= 0 ||
+      storedFileSize > MAX_FILE_BYTES[mediaType]
+    ) {
+      await supabaseAdmin.storage.from(COMMUNITY_MEDIA_BUCKET).remove([storagePath]);
+      return sendJson(res, 400, {
+        ok: false,
+        error:
+          mediaType === "video"
+            ? "El video comprimido supera el máximo de 15 MB."
+            : "La imagen supera el máximo de 10 MB.",
       });
     }
 

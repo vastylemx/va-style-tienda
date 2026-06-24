@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import { adminFetch } from "./adminApi";
+import {
+  COMMUNITY_IMAGE_INPUT_MAX_BYTES,
+  COMMUNITY_VIDEO_INPUT_MAX_BYTES,
+  COMMUNITY_VIDEO_OUTPUT_MAX_BYTES,
+  formatCommunityFileSize,
+} from "./communityMediaLimits";
 
 const COMMUNITY_MEDIA_BUCKET = "community-media";
 const MAX_POST_TEXT_LENGTH = 200;
@@ -50,6 +56,7 @@ export default function CommunityAdmin({ onClose }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [publishStatus, setPublishStatus] = useState("");
   const [busyPostId, setBusyPostId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [file, setFile] = useState(null);
@@ -101,6 +108,7 @@ export default function CommunityAdmin({ onClose }) {
     setFile(null);
     setText("");
     setAdvisorLine("1");
+    setPublishStatus("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -112,6 +120,24 @@ export default function CommunityAdmin({ onClose }) {
       setFile(null);
       event.target.value = "";
       setError("Selecciona únicamente una imagen o un video.");
+      return;
+    }
+
+    if (nextFile?.type?.startsWith("image/") && nextFile.size > COMMUNITY_IMAGE_INPUT_MAX_BYTES) {
+      setFile(null);
+      event.target.value = "";
+      setError(
+        `La imagen pesa ${formatCommunityFileSize(nextFile.size)}. El máximo permitido es 10 MB.`
+      );
+      return;
+    }
+
+    if (nextFile?.type?.startsWith("video/") && nextFile.size > COMMUNITY_VIDEO_INPUT_MAX_BYTES) {
+      setFile(null);
+      event.target.value = "";
+      setError(
+        `El video pesa ${formatCommunityFileSize(nextFile.size)}. El máximo antes de comprimir es 60 MB.`
+      );
       return;
     }
 
@@ -154,14 +180,34 @@ export default function CommunityAdmin({ onClose }) {
     setMessage("");
 
     const mediaType = getMediaType(file);
-    const extension = getFileExtension(file, mediaType);
     try {
+      let uploadFile = file;
+
+      if (mediaType === "video") {
+        setPublishStatus("Comprimiendo video…");
+        const { compressCommunityVideo } = await import("./communityVideoCompression");
+        uploadFile = await compressCommunityVideo(file, {
+          onProgress: (progress) => {
+            setPublishStatus(`Comprimiendo video… ${progress}%`);
+          },
+        });
+
+        if (uploadFile.size > COMMUNITY_VIDEO_OUTPUT_MAX_BYTES) {
+          throw new Error(
+            "No fue posible comprimir el video por debajo de 15 MB. Recórtalo e intenta nuevamente."
+          );
+        }
+      }
+
+      setPublishStatus("Subiendo publicación…");
+      const extension = getFileExtension(uploadFile, mediaType);
       const uploadAuthorization = await adminFetch("/api/admin/community-upload-url", {
         method: "POST",
         body: JSON.stringify({
           mediaType,
           extension,
-          contentType: file.type,
+          contentType: uploadFile.type,
+          fileSize: uploadFile.size,
         }),
       });
 
@@ -173,8 +219,8 @@ export default function CommunityAdmin({ onClose }) {
 
       const { error: uploadError } = await supabase.storage
         .from(COMMUNITY_MEDIA_BUCKET)
-        .uploadToSignedUrl(storagePath, uploadAuthorization.token, file, {
-          contentType: file.type,
+        .uploadToSignedUrl(storagePath, uploadAuthorization.token, uploadFile, {
+          contentType: uploadFile.type,
         });
 
       if (uploadError) throw uploadError;
@@ -204,6 +250,7 @@ export default function CommunityAdmin({ onClose }) {
       setError(publishError.message || "No se pudo crear la publicación.");
     } finally {
       setSaving(false);
+      setPublishStatus("");
     }
   }
 
@@ -537,8 +584,13 @@ export default function CommunityAdmin({ onClose }) {
             </label>
 
             <button className="community-admin__publish" type="submit" disabled={saving}>
-              {saving ? "Publicando…" : "Publicar"}
+              {saving ? publishStatus || "Subiendo publicación…" : "Publicar"}
             </button>
+            {saving && publishStatus && (
+              <div className="community-admin__message" role="status" aria-live="polite">
+                {publishStatus}
+              </div>
+            )}
           </form>
         )}
 
