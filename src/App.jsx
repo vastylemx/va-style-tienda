@@ -913,12 +913,7 @@ export default function App() {
       .from("reviews")
       .select("id, customer_name, rating, comment, media_url");
 
-    console.log("Reviews query error:", error);
-    console.log("Reviews query data.length:", data?.length ?? 0);
-    console.log("Reviews query data:", data);
-
     if (error) {
-      console.error("No se pudieron cargar las reseñas:", error);
       return;
     }
 
