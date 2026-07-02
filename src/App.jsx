@@ -911,8 +911,7 @@ export default function App() {
   async function fetchReviews() {
     const { data, error } = await supabase
       .from("reviews")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("id, customer_name, rating, comment, media_url");
 
     if (error) {
       console.log(error);
@@ -988,8 +987,8 @@ export default function App() {
   }
 
 
-  const approvedReviews = reviews.filter((review) => review.approved);
-  const pendingReviews = reviews.filter((review) => !review.approved);
+  const approvedReviews = reviews;
+  const pendingReviews = reviews.filter((review) => review.approved === false);
   const showroomArrivals = showroomItems.slice(0, 12);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -4925,7 +4924,7 @@ export default function App() {
         >
           <span className="review-star">★</span>
           <span>
-            <strong>{reviewAverage}</strong> ({reviewCount || 324})
+            <strong>{reviewAverage}</strong> ({reviewCount})
             <small>Reseñas</small>
           </span>
         </button>
@@ -5333,11 +5332,11 @@ export default function App() {
                 <p>“{review.comment}”</p>
                 <strong>— {review.customer_name}</strong>
 
-                {review.media_url && review.media_type === "video" && (
+                {review.media_url && /\.(mp4|mov|webm|ogg)(\?.*)?$/i.test(review.media_url) && (
                   <video src={review.media_url} controls className="review-media" />
                 )}
 
-                {review.media_url && review.media_type !== "video" && (
+                {review.media_url && !/\.(mp4|mov|webm|ogg)(\?.*)?$/i.test(review.media_url) && (
                   <img
                     src={review.media_url}
                     alt="Reseña de cliente"
