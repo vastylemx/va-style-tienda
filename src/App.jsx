@@ -987,8 +987,7 @@ export default function App() {
   }
 
 
-  const approvedReviews = reviews;
-  const pendingReviews = reviews.filter((review) => review.approved === false);
+  const pendingReviews = reviews;
   const showroomArrivals = showroomItems.slice(0, 12);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -1034,13 +1033,13 @@ export default function App() {
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
   const paginatedProductGroups = displayedProductGroups.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
   const cartSummary = getCartSummary(cart);
-  const reviewAverage = approvedReviews.length
+  const reviewAverage = reviews.length
     ? (
-        approvedReviews.reduce((sum, review) => sum + (Number(review.rating) || 5), 0) /
-        approvedReviews.length
+        reviews.reduce((sum, review) => sum + (Number(review.rating) || 5), 0) /
+        reviews.length
       ).toFixed(1)
     : "5.0";
-  const reviewCount = approvedReviews.length;
+  const reviewCount = reviews.length;
 
   const subtotal = cart
     .map((item) => getCleanPrice(item.price))
@@ -5324,9 +5323,9 @@ export default function App() {
           <p>Experiencias reales de clientes V & A Style.</p>
         </div>
 
-        {approvedReviews.length > 0 && (
+        {reviews.length > 0 && (
           <div className="reviews-grid">
-            {approvedReviews.slice(0, 8).map((review) => (
+            {reviews.map((review) => (
               <div className="review-card" key={review.id}>
                 <div className="review-stars">{"⭐".repeat(Number(review.rating) || 5)}</div>
                 <p>“{review.comment}”</p>
