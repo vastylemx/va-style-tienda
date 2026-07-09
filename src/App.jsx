@@ -1412,6 +1412,17 @@ export default function App() {
     const confirmDelete = confirm("¿Seguro que quieres borrar este producto?");
     if (!confirmDelete) return;
 
+    try {
+      const session = await getAdminSession();
+      await verifyAdminSession(session);
+    } catch (sessionError) {
+      console.error("[AdminProducts] DELETE products blocked by invalid admin session:", sessionError);
+      alert("No se borró el producto. La sesión admin no tiene permiso o el producto no existe.");
+      setShowAdmin(false);
+      setAdminModal(null);
+      return;
+    }
+
     const { data, error } = await supabase.from("products").delete().eq("id", id).select("id");
     console.log("delete result", data, error);
 
@@ -1422,7 +1433,7 @@ export default function App() {
     }
 
     if (!data?.length) {
-      const message = "Supabase no confirmó el borrado del producto.";
+      const message = "No se borró el producto. La sesión admin no tiene permiso o el producto no existe.";
       alert(message);
       console.error("[AdminProducts] DELETE products returned no rows:", { id, data });
       return;
