@@ -763,6 +763,7 @@ export default function App() {
   useEffect(() => {
     if (!showAdmin) return;
 
+    fetchProducts();
     fetchOrders();
 
     const channel = supabase
@@ -882,12 +883,12 @@ export default function App() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.log(error);
+      console.error("[AdminProducts] Error SELECT products:", error);
       return;
     }
 
     setProducts(
-      data.map((p) => ({
+      (data || []).map((p) => ({
         id: p.id,
         name: p.name,
         brand: (p.brand || "").toUpperCase(),
@@ -1370,6 +1371,12 @@ export default function App() {
   }
 
   async function deleteProduct(id) {
+    if (id === undefined || id === null || id === "") {
+      console.error("[AdminProducts] DELETE products skipped: invalid product id", id);
+      alert("No se pudo identificar el producto para borrarlo.");
+      return;
+    }
+
     const confirmDelete = confirm("¿Seguro que quieres borrar este producto?");
     if (!confirmDelete) return;
 
@@ -1377,13 +1384,13 @@ export default function App() {
 
     if (error) {
       alert(error.message);
-      console.log(error);
+      console.error("[AdminProducts] Error DELETE products:", error);
       return;
     }
 
-    setCart(cart.filter((item) => item.id !== id));
+    setCart((currentCart) => currentCart.filter((item) => item.id !== id));
+    await fetchProducts();
     alert("Producto borrado correctamente");
-    fetchProducts();
   }
 
   function openAddProductModal() {
