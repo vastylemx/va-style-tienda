@@ -619,7 +619,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    fetchProducts();
+    fetchProducts("app-init");
     fetchReviews();
     fetchShowroomArrivals();
     fetchHomeSettings();
@@ -728,7 +728,7 @@ export default function App() {
       } catch (signOutError) {
         console.error("No fue posible limpiar la sesión administrativa expirada:", signOutError);
       } finally {
-        if (active) await fetchProducts();
+        if (active) await fetchProducts("admin-session-clear");
       }
     }
 
@@ -779,7 +779,9 @@ export default function App() {
   useEffect(() => {
     if (!showAdmin) return;
 
-    fetchProducts();
+    console.log("showAdmin cambió", showAdmin);
+    console.log("products antes/después de abrir admin", products.length);
+    fetchProducts("admin-open");
     fetchOrders();
 
     const channel = supabase
@@ -892,19 +894,29 @@ export default function App() {
     alert("Para instalar V & A Style: abre el menú del navegador y elige Instalar app o Agregar a pantalla de inicio.");
   }
 
-  async function fetchProducts() {
+  async function fetchProducts(context = "unknown") {
+    console.log("fetchProducts ejecutado desde", context);
+
     const { data, error } = await supabase
       .from("products")
       .select("*")
       .order("created_at", { ascending: false });
+
+    console.log("fetchProducts resultado", data?.length, error);
 
     if (error) {
       console.error("[AdminProducts] Error SELECT products:", error);
       return;
     }
 
-    setProducts(
-      (data || []).map((p) => ({
+    setProducts((currentProducts) => {
+      if (context === "admin-open" && (!data || data.length === 0) && currentProducts.length > 0) {
+        console.warn("[AdminProducts] admin-open returned empty products; keeping current public list.");
+        console.log("products antes/después de abrir admin", currentProducts.length);
+        return currentProducts;
+      }
+
+      const nextProducts = (data || []).map((p) => ({
         id: p.id,
         name: p.name,
         brand: (p.brand || "").toUpperCase(),
@@ -921,8 +933,10 @@ export default function App() {
         price: Number(p.wholesale_price) || 0,
         shippingFactor: Number(p.shipping_factor) || getDefaultShippingFactor(p.category),
         image: p.image_url,
-      }))
-    );
+      }));
+      console.log("products antes/después de abrir admin", currentProducts.length, nextProducts.length);
+      return nextProducts;
+    });
   }
 
   async function fetchReviews() {
@@ -1405,7 +1419,7 @@ export default function App() {
     }
 
     setCart((currentCart) => currentCart.filter((item) => item.id !== id));
-    await fetchProducts();
+    await fetchProducts("delete-product");
     alert("Producto borrado correctamente");
   }
 
@@ -1594,7 +1608,7 @@ export default function App() {
 
     setEditingProduct(null);
     setAdminModal(null);
-    fetchProducts();
+    fetchProducts("save-product");
   }
 
   async function saveBulkProducts() {
@@ -1702,7 +1716,7 @@ export default function App() {
       progress: "",
     });
     setAdminModal(null);
-    fetchProducts();
+    fetchProducts("bulk-upload");
   }
 
   async function submitReview() {
