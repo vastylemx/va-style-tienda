@@ -1401,6 +1401,8 @@ export default function App() {
   }
 
   async function deleteProduct(id) {
+    console.log("deleteProduct id", id);
+
     if (id === undefined || id === null || id === "") {
       console.error("[AdminProducts] DELETE products skipped: invalid product id", id);
       alert("No se pudo identificar el producto para borrarlo.");
@@ -1410,7 +1412,8 @@ export default function App() {
     const confirmDelete = confirm("¿Seguro que quieres borrar este producto?");
     if (!confirmDelete) return;
 
-    const { error } = await supabase.from("products").delete().eq("id", id);
+    const { data, error } = await supabase.from("products").delete().eq("id", id).select("id");
+    console.log("delete result", data, error);
 
     if (error) {
       alert(error.message);
@@ -1418,8 +1421,15 @@ export default function App() {
       return;
     }
 
+    if (!data?.length) {
+      const message = "Supabase no confirmó el borrado del producto.";
+      alert(message);
+      console.error("[AdminProducts] DELETE products returned no rows:", { id, data });
+      return;
+    }
+
     setCart((currentCart) => currentCart.filter((item) => item.id !== id));
-    await fetchProducts("delete-product");
+    setProducts((prevProducts) => prevProducts.filter((product) => product.id !== id));
     alert("Producto borrado correctamente");
   }
 
