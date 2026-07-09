@@ -714,6 +714,24 @@ export default function App() {
   useEffect(() => {
     let active = true;
 
+    async function clearExpiredAdminSession(error, context) {
+      console.error(context, error);
+
+      if (active) {
+        setShowAdmin(false);
+        setAdminModal(null);
+        setShowAdminLogin(false);
+      }
+
+      try {
+        await signOutAdmin();
+      } catch (signOutError) {
+        console.error("No fue posible limpiar la sesión administrativa expirada:", signOutError);
+      } finally {
+        if (active) await fetchProducts();
+      }
+    }
+
     async function restoreAdminSession() {
       try {
         const session = await getAdminSession();
@@ -722,8 +740,7 @@ export default function App() {
         const admin = await verifyAdminSession(session);
         if (active) setShowAdmin(Boolean(admin));
       } catch (error) {
-        console.error("No fue posible restaurar la sesión administrativa:", error);
-        if (active) setShowAdmin(false);
+        await clearExpiredAdminSession(error, "No fue posible restaurar la sesión administrativa:");
       } finally {
         if (active) setAdminAuthLoading(false);
       }
@@ -746,8 +763,7 @@ export default function App() {
           const admin = await verifyAdminSession(session);
           if (active) setShowAdmin(Boolean(admin));
         } catch (error) {
-          console.error("La sesión no tiene acceso administrativo:", error);
-          if (active) setShowAdmin(false);
+          await clearExpiredAdminSession(error, "La sesión no tiene acceso administrativo:");
         } finally {
           if (active) setAdminAuthLoading(false);
         }
