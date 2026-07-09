@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { publicSupabase, supabase } from "./supabase";
 import logo from "./assets/5EBEC563-AD5B-47FB-AFE9-482289C13B90.jpg";
 import { useState, useEffect, useRef } from "react";
 import CommunityFeed from "./CommunityFeed";
@@ -897,7 +897,7 @@ export default function App() {
   async function fetchProducts(context = "unknown") {
     console.log("fetchProducts ejecutado desde", context);
 
-    const { data, error } = await supabase
+    const { data, error } = await publicSupabase
       .from("products")
       .select("*")
       .order("created_at", { ascending: false });
