@@ -934,7 +934,10 @@ export default function App() {
   async function fetchReviews() {
     const { data, error } = await supabase
       .from("reviews")
-      .select("id, customer_name, rating, comment, media_url");
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    console.log("fetchReviews resultado", data?.length, error);
 
     if (error) {
       return;
@@ -1009,7 +1012,8 @@ export default function App() {
   }
 
 
-  const pendingReviews = reviews;
+  const approvedReviews = reviews.filter((review) => review.approved);
+  const pendingReviews = reviews.filter((review) => !review.approved);
   const showroomArrivals = showroomItems.slice(0, 12);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -1055,13 +1059,13 @@ export default function App() {
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
   const paginatedProductGroups = displayedProductGroups.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
   const cartSummary = getCartSummary(cart);
-  const reviewAverage = reviews.length
+  const reviewAverage = approvedReviews.length
     ? (
-        reviews.reduce((sum, review) => sum + (Number(review.rating) || 5), 0) /
-        reviews.length
+        approvedReviews.reduce((sum, review) => sum + (Number(review.rating) || 5), 0) /
+        approvedReviews.length
       ).toFixed(1)
     : "5.0";
-  const reviewCount = reviews.length;
+  const reviewCount = approvedReviews.length;
 
   const subtotal = cart
     .map((item) => getCleanPrice(item.price))
@@ -1800,7 +1804,16 @@ export default function App() {
   }
 
   async function approveReview(id) {
-    const { error } = await supabase.from("reviews").update({ approved: true }).eq("id", id);
+    console.log("reviews antes de aprobar", reviews?.length);
+    console.log("approveReview id", id);
+
+    const { data, error } = await supabase
+      .from("reviews")
+      .update({ approved: true })
+      .eq("id", id)
+      .select("*");
+
+    console.log("approveReview resultado", data, error);
 
     if (error) {
       alert(error.message);
@@ -1808,7 +1821,14 @@ export default function App() {
       return;
     }
 
-    fetchReviews();
+    setReviews((prev) =>
+      prev.map((review) =>
+        review.id === id
+          ? { ...review, approved: true }
+          : review
+      )
+    );
+    console.log("reviews después de aprobar", reviews?.length);
   }
 
   async function deleteReview(id) {
@@ -5373,9 +5393,9 @@ export default function App() {
           <p>Experiencias reales de clientes V & A Style.</p>
         </div>
 
-        {reviews.length > 0 && (
+        {approvedReviews.length > 0 && (
           <div className="reviews-grid">
-            {reviews.map((review) => (
+            {approvedReviews.map((review) => (
               <div className="review-card" key={review.id}>
                 <div className="review-stars">{"⭐".repeat(Number(review.rating) || 5)}</div>
                 <p>“{review.comment}”</p>
@@ -6241,11 +6261,11 @@ export default function App() {
               <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
             </div>
 
-            {reviews.length === 0 ? (
+            {pendingReviews.length === 0 ? (
               <div className="bulk-note">Todavía no hay reseñas.</div>
             ) : (
               <div className="admin-review-list">
-                {reviews.map((review) => (
+                {pendingReviews.map((review) => (
                   <div className="admin-review-item" key={review.id}>
                     <strong>{review.customer_name}</strong>
                     <div>{"⭐".repeat(Number(review.rating) || 5)}</div>
