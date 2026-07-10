@@ -779,8 +779,6 @@ export default function App() {
   useEffect(() => {
     if (!showAdmin) return;
 
-    console.log("showAdmin cambió", showAdmin);
-    console.log("products antes/después de abrir admin", products.length);
     fetchProducts("admin-open");
     fetchOrders();
 
@@ -895,14 +893,10 @@ export default function App() {
   }
 
   async function fetchProducts(context = "unknown") {
-    console.log("fetchProducts ejecutado desde", context);
-
     const { data, error } = await publicSupabase
       .from("products")
       .select("*")
       .order("created_at", { ascending: false });
-
-    console.log("fetchProducts resultado", data?.length, error);
 
     if (error) {
       console.error("[AdminProducts] Error SELECT products:", error);
@@ -912,7 +906,6 @@ export default function App() {
     setProducts((currentProducts) => {
       if (context === "admin-open" && (!data || data.length === 0) && currentProducts.length > 0) {
         console.warn("[AdminProducts] admin-open returned empty products; keeping current public list.");
-        console.log("products antes/después de abrir admin", currentProducts.length);
         return currentProducts;
       }
 
@@ -934,7 +927,6 @@ export default function App() {
         shippingFactor: Number(p.shipping_factor) || getDefaultShippingFactor(p.category),
         image: p.image_url,
       }));
-      console.log("products antes/después de abrir admin", currentProducts.length, nextProducts.length);
       return nextProducts;
     });
   }
@@ -1401,8 +1393,6 @@ export default function App() {
   }
 
   async function deleteProduct(id) {
-    console.log("deleteProduct id", id);
-
     if (id === undefined || id === null || id === "") {
       console.error("[AdminProducts] DELETE products skipped: invalid product id", id);
       alert("No se pudo identificar el producto para borrarlo.");
@@ -1423,29 +1413,11 @@ export default function App() {
       return;
     }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    console.log(
-      "JWT role",
-      session?.user?.app_metadata,
-      session?.access_token
-    );
-
-    const { data: user } = await supabase.auth.getUser();
-    console.log("Admin user", user);
-    console.log("Deleting id", id);
-
-    const { data, error, count } = await supabase
+    const { data, error } = await supabase
       .from("products")
       .delete()
       .eq("id", id)
-      .select("id", { count: "exact" });
-    console.log({
-      data,
-      error,
-      count,
-    });
+      .select("id");
 
     if (error) {
       alert(error.message);
