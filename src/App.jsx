@@ -932,12 +932,14 @@ export default function App() {
   }
 
   async function fetchReviews() {
-    const { data, error } = await supabase
+    const { data, error } = await publicSupabase
       .from("reviews")
       .select("*")
       .order("created_at", { ascending: false });
 
-    console.log("fetchReviews resultado", data?.length, error);
+    console.log("fetchReviews data", data);
+    console.log("fetchReviews total", data?.length);
+    console.log("fetchReviews error", error);
 
     if (error) {
       return;
