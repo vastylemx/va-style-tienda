@@ -1423,8 +1423,29 @@ export default function App() {
       return;
     }
 
-    const { data, error } = await supabase.from("products").delete().eq("id", id).select("id");
-    console.log("delete result", data, error);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    console.log(
+      "JWT role",
+      session?.user?.app_metadata,
+      session?.access_token
+    );
+
+    const { data: user } = await supabase.auth.getUser();
+    console.log("Admin user", user);
+    console.log("Deleting id", id);
+
+    const { data, error, count } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", id)
+      .select("id", { count: "exact" });
+    console.log({
+      data,
+      error,
+      count,
+    });
 
     if (error) {
       alert(error.message);
