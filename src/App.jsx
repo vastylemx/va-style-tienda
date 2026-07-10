@@ -937,10 +937,6 @@ export default function App() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    console.log("fetchReviews data", data);
-    console.log("fetchReviews total", data?.length);
-    console.log("fetchReviews error", error);
-
     if (error) {
       return;
     }
@@ -1806,16 +1802,11 @@ export default function App() {
   }
 
   async function approveReview(id) {
-    console.log("reviews antes de aprobar", reviews?.length);
-    console.log("approveReview id", id);
-
     const { data, error } = await supabase
       .from("reviews")
       .update({ approved: true })
       .eq("id", id)
       .select("*");
-
-    console.log("approveReview resultado", data, error);
 
     if (error) {
       alert(error.message);
@@ -1830,7 +1821,6 @@ export default function App() {
           : review
       )
     );
-    console.log("reviews después de aprobar", reviews?.length);
   }
 
   async function deleteReview(id) {
