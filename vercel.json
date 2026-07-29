@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/admin/home-config",
+      "destination": "/api/admin/manage?resource=home-config"
+    },
+    {
+      "source": "/api/admin/home-upload-url",
+      "destination": "/api/admin/manage?resource=home-upload-url"
+    },
+    {
+      "source": "/api/admin/product-delete",
+      "destination": "/api/admin/manage?resource=product-delete"
+    },
+    {
+      "source": "/api/admin/review",
+      "destination": "/api/admin/manage?resource=review"
+    },
+    {
+      "source": "/api/admin/whatsapp-lines",
+      "destination": "/api/admin/manage?resource=whatsapp-lines"
+    }
+  ]
+}

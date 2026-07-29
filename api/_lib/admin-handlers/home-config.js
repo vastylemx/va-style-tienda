@@ -1,6 +1,6 @@
-import { requireAdmin } from "../_lib/require-admin.js";
-import { requireMethod, sendJson } from "../_lib/http.js";
-import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
+import { requireAdmin } from "../require-admin.js";
+import { requireMethod, sendJson } from "../http.js";
+import { getSupabaseAdmin } from "../supabase-admin.js";
 
 const TABLES = {
   section: "home_sections",

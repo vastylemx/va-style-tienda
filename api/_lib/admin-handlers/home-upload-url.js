@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { requireAdmin } from "../_lib/require-admin.js";
-import { requireMethod, sendJson } from "../_lib/http.js";
-import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
+import { requireAdmin } from "../require-admin.js";
+import { requireMethod, sendJson } from "../http.js";
+import { getSupabaseAdmin } from "../supabase-admin.js";
 
 const BUCKET = "home-media";
 const EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);

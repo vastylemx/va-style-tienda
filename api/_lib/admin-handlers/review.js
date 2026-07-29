@@ -1,6 +1,6 @@
-import { requireAdmin } from "../_lib/require-admin.js";
-import { requireMethod, sendJson } from "../_lib/http.js";
-import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
+import { requireAdmin } from "../require-admin.js";
+import { requireMethod, sendJson } from "../http.js";
+import { getSupabaseAdmin } from "../supabase-admin.js";
 
 function isValidId(value) {
   return /^[a-z0-9_-]{1,128}$/i.test(String(value ?? "").trim());
