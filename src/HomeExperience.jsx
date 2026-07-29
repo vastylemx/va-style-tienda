@@ -16,6 +16,7 @@ const FALLBACK_SECTIONS = [
 
 const ICONS = {
   bag: <><path d="M6.5 8.5h11l1 12h-13l1-12Z" /><path d="M9 9V6.5a3 3 0 0 1 6 0V9" /></>,
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" /><path d="M10 21h4" /></>,
   close: <><path d="m6 6 12 12M18 6 6 18" /></>,
   arrow: <><path d="M5 12h14M14 7l5 5-5 5" /></>,
 };
@@ -121,7 +122,7 @@ function Header({ cartCount, onCart, onMenu, onHome, onAdminAccess }) {
   );
 }
 
-function FullScreenMenu({ open, onClose, categories, onCategory, onSearch, onCommunity, onFavorites, onContact, onPolicies }) {
+function FullScreenMenu({ open, onClose, categories, onCategory, onSearch, onCommunity, onFavorites, onContact, onPolicies, showInstallOption, onInstall, hasNewCommunityPost }) {
   const closeRef = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -151,13 +152,70 @@ function FullScreenMenu({ open, onClose, categories, onCategory, onSearch, onCom
         </nav>
         <nav className="ve-menu-secondary" aria-label="Más opciones">
           <button onClick={() => { onSearch(); onClose(); }}>🔍 BUSCAR PRODUCTOS</button>
-          <button onClick={() => { onCommunity(); onClose(); }}>COMUNIDAD</button>
+          <button className="ve-menu-community" onClick={() => { onCommunity(); onClose(); }}>
+            <span className="ve-menu-bell" aria-hidden="true">
+              <Icon name="bell" size={18} />
+              {hasNewCommunityPost && <b>1</b>}
+            </span>
+            COMUNIDAD
+          </button>
           <button onClick={() => { onFavorites(); onClose(); }}>FAVORITOS</button>
           <button onClick={() => { onContact(); onClose(); }}>CONTACTO</button>
           <button onClick={() => { onPolicies(); onClose(); }}>POLÍTICAS</button>
+          {showInstallOption && (
+            <button onClick={() => { onInstall("menu"); onClose(); }}>INSTALAR APLICACIÓN</button>
+          )}
         </nav>
         <p>León, Guanajuato · Envíos a todo México</p>
       </aside>
+    </div>
+  );
+}
+
+function InstallBanner({ onInstall, onDismiss }) {
+  return (
+    <aside className="ve-install-banner" aria-labelledby="ve-install-title">
+      <div className="ve-install-mark" aria-hidden="true">V <i>&amp;</i> A</div>
+      <div className="ve-install-copy">
+        <span>ACCESO DIRECTO</span>
+        <h2 id="ve-install-title">Instala V &amp; A Style en tu celular</h2>
+        <p>Accede más rápido y lleva tu tienda siempre contigo.</p>
+      </div>
+      <button className="ve-install-action" type="button" onClick={() => onInstall("home_banner")}>
+        Instalar app
+        <Icon name="arrow" size={16} />
+      </button>
+      <button className="ve-install-close" type="button" onClick={onDismiss} aria-label="Cerrar invitación de instalación">
+        <Icon name="close" size={17} />
+      </button>
+    </aside>
+  );
+}
+
+function InstallGuide({ mode, onClose }) {
+  if (!mode) return null;
+
+  return (
+    <div className="ve-install-guide-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="ve-install-guide" role="dialog" aria-modal="true" aria-labelledby="ve-install-guide-title">
+        <button className="ve-install-guide-close" type="button" onClick={onClose} aria-label="Cerrar instrucciones">
+          <Icon name="close" size={18} />
+        </button>
+        <span>INSTALAR APLICACIÓN</span>
+        <h2 id="ve-install-guide-title">V &amp; A Style siempre contigo</h2>
+        {mode === "ios" ? (
+          <>
+            <p>Toca Compartir y después Agregar a pantalla de inicio.</p>
+            <ol>
+              <li><b aria-hidden="true">↥</b><span><strong>Compartir</strong> en Safari</span></li>
+              <li><b aria-hidden="true">＋</b><span><strong>Agregar</strong> a pantalla de inicio</span></li>
+            </ol>
+          </>
+        ) : (
+          <p>Abre el menú de tu navegador y elige <strong>Instalar aplicación</strong> o <strong>Agregar a pantalla de inicio</strong>.</p>
+        )}
+        <button className="ve-install-guide-done" type="button" onClick={onClose}>Entendido</button>
+      </section>
     </div>
   );
 }
@@ -399,7 +457,7 @@ export function BoutiqueFooter({ onCommunity, onCollections, onReviews, onContac
   );
 }
 
-export default function HomeExperience({ products, reviews = [], homeSettings, cartCount, showContent = true, onHome, onCart, onSearch, onCategory, onProduct, onNewArrivals, onCommunity, onReviews, onFavorites, onContact, onPolicies, onAdminAccess }) {
+export default function HomeExperience({ products, reviews = [], homeSettings, cartCount, showContent = true, onHome, onCart, onSearch, onCategory, onProduct, onNewArrivals, onCommunity, onReviews, onFavorites, onContact, onPolicies, onAdminAccess, showInstallBanner = false, showInstallOption = false, installGuide = "", onInstall, onDismissInstall, onCloseInstallGuide, hasNewCommunityPost = false }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [config, setConfig] = useState({ banners: [], featured: [], sections: FALLBACK_SECTIONS });
   const [communityPosts, setCommunityPosts] = useState([]);
@@ -482,9 +540,14 @@ export default function HomeExperience({ products, reviews = [], homeSettings, c
   return (
     <>
       <Header cartCount={cartCount} onHome={onHome} onCart={onCart} onMenu={() => setMenuOpen(true)} onAdminAccess={onAdminAccess} />
-      <FullScreenMenu open={menuOpen} onClose={() => setMenuOpen(false)} categories={categories} onCategory={onCategory} onSearch={onSearch} onCommunity={onCommunity} onFavorites={onFavorites} onContact={onContact} onPolicies={onPolicies} />
+      <FullScreenMenu open={menuOpen} onClose={() => setMenuOpen(false)} categories={categories} onCategory={onCategory} onSearch={onSearch} onCommunity={onCommunity} onFavorites={onFavorites} onContact={onContact} onPolicies={onPolicies} showInstallOption={showInstallOption} onInstall={onInstall} hasNewCommunityPost={hasNewCommunityPost} />
       {showContent && sections.map((section) => {
-        if (section.section_key === "hero") return <Hero key="hero" banners={config.banners.slice(0, section.item_limit || 5)} fallback={fallbackHero} onNavigate={navigateBanner} />;
+        if (section.section_key === "hero") return (
+          <div key="hero">
+            <Hero banners={config.banners.slice(0, section.item_limit || 5)} fallback={fallbackHero} onNavigate={navigateBanner} />
+            {showInstallBanner && <InstallBanner onInstall={onInstall} onDismiss={onDismissInstall} />}
+          </div>
+        );
         if (section.section_key === "categories") return <FeaturedCategories key="categories" items={featured} title={section.title || "Compra por categoría"} showViewAll={section.show_view_all} limit={section.item_limit || 5} onCategory={onCategory} onAll={() => setMenuOpen(true)} />;
         if (section.section_key === "new_arrivals") return <ProductRail key="new" eyebrow="RECIÉN LLEGADO" title={section.title || "Novedades"} showViewAll={section.show_view_all} products={newProducts.slice(0, section.item_limit || 8)} onProduct={onProduct} onAll={onNewArrivals} />;
         if (section.section_key === "reviews") return <HomeReviews key="reviews" reviews={reviews} title={section.title || "Lo que dicen nuestras clientas"} showViewAll={section.show_view_all} limit={section.item_limit || 3} onAll={onReviews} />;
@@ -493,6 +556,7 @@ export default function HomeExperience({ products, reviews = [], homeSettings, c
         if (section.section_key === "trust") return <TrustBenefits key="trust" />;
         return null;
       })}
+      <InstallGuide mode={installGuide} onClose={onCloseInstallGuide} />
     </>
   );
 }

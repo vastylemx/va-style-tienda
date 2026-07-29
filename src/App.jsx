@@ -43,6 +43,9 @@ const MERCADO_PAGO_MINIMUM_AMOUNT = MERCADO_PAGO_TEST_MODE ? 6 : 50;
 const MP_PENDING_ORDER_KEY = "vaStylePendingMercadoPagoOrder";
 const FAVORITES_STORAGE_KEY = "vaStyleFavorites";
 const ADMIN_ENTRY_HASH = "#/admin";
+const INSTALL_BANNER_DISMISSED_KEY = "vaStyleInstallBannerDismissedUntil";
+const INSTALL_BANNER_DISMISS_MS = 7 * 24 * 60 * 60 * 1000;
+const COMMUNITY_LAST_SEEN_KEY = "vaStyleCommunityLastSeen";
 
 const DEFAULT_HOME_SETTINGS = {
   id: 1,
@@ -96,6 +99,42 @@ function getDeviceInfo() {
 function isIOSDevice() {
   if (typeof navigator === "undefined") return false;
   return /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+
+function isAppRunningStandalone() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia?.("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+}
+
+function getInstallBannerDismissedUntil() {
+  try {
+    if (typeof window === "undefined") return 0;
+    const value = Number(window.localStorage.getItem(INSTALL_BANNER_DISMISSED_KEY));
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getLastSeenCommunityPost() {
+  try {
+    if (typeof window === "undefined") return null;
+    const value = JSON.parse(window.localStorage.getItem(COMMUNITY_LAST_SEEN_KEY) || "null");
+    return value?.id ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function isCommunityPostNewer(latestPost, lastSeenPost) {
+  if (!latestPost?.id) return false;
+  if (!lastSeenPost?.id) return true;
+
+  const latestTime = new Date(latestPost.created_at || 0).getTime();
+  const seenTime = new Date(lastSeenPost.created_at || 0).getTime();
+  if (latestTime > seenTime) return true;
+  return latestTime === seenTime && String(latestPost.id) !== String(lastSeenPost.id);
 }
 
 function getCleanPrice(value) {
@@ -522,7 +561,13 @@ export default function App() {
     saving: false,
   });
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
-  const [, setCanInstallApp] = useState(false);
+  const [isAppInstalled, setIsAppInstalled] = useState(isAppRunningStandalone);
+  const [installBannerDismissedUntil, setInstallBannerDismissedUntil] = useState(
+    getInstallBannerDismissedUntil
+  );
+  const [installGuide, setInstallGuide] = useState("");
+  const [latestCommunityPost, setLatestCommunityPost] = useState(null);
+  const [lastSeenCommunityPost, setLastSeenCommunityPost] = useState(getLastSeenCommunityPost);
   const [showCategorySheet, setShowCategorySheet] = useState(false);
   const [currentView, setCurrentView] = useState("home");
   const [favorites, setFavorites] = useState(() => {
@@ -640,12 +685,12 @@ export default function App() {
     const handleBeforeInstallPrompt = (event) => {
       event.preventDefault();
       setDeferredInstallPrompt(event);
-      setCanInstallApp(true);
     };
 
     const handleAppInstalled = () => {
-      setCanInstallApp(false);
       setDeferredInstallPrompt(null);
+      setIsAppInstalled(true);
+      setInstallGuide("");
       recordInstallEvent("installed");
       trackEvent("app_installed", { platform: "pwa" });
     };
@@ -733,6 +778,37 @@ export default function App() {
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function fetchLatestCommunityPost() {
+      const { data, error } = await publicSupabase
+        .from("community_posts")
+        .select("id,created_at")
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        if (import.meta.env.DEV) console.warn("[CommunityBadge] No fue posible consultar la publicación más reciente:", error);
+        return;
+      }
+      if (active) setLatestCommunityPost(data || null);
+    }
+
+    fetchLatestCommunityPost();
+    const channel = publicSupabase
+      .channel("community-notification-badge")
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_posts" }, fetchLatestCommunityPost)
+      .subscribe();
+
+    return () => {
+      active = false;
+      publicSupabase.removeChannel(channel);
     };
   }, []);
 
@@ -910,17 +986,17 @@ export default function App() {
     }
   }
 
-  async function handleInstallAppClick() {
-    trackEvent("install_app_click", { location: "home_banner" });
+  async function handleInstallAppClick(location = "home_banner") {
+    trackEvent("install_app_click", { location });
     recordInstallEvent("install_click");
 
     if (deferredInstallPrompt) {
       deferredInstallPrompt.prompt();
       const result = await deferredInstallPrompt.userChoice;
       setDeferredInstallPrompt(null);
-      setCanInstallApp(false);
 
       if (result?.outcome === "accepted") {
+        setIsAppInstalled(true);
         recordInstallEvent("installed");
         trackEvent("app_installed", { platform: "pwa" });
       }
@@ -930,11 +1006,44 @@ export default function App() {
 
     if (isIOSDevice()) {
       recordInstallEvent("ios_instruction_view");
-      alert("Para instalar V & A Style en iPhone: toca Compartir en Safari y después elige Agregar a pantalla de inicio.");
+      setInstallGuide("ios");
       return;
     }
 
-    alert("Para instalar V & A Style: abre el menú del navegador y elige Instalar app o Agregar a pantalla de inicio.");
+    setInstallGuide("browser");
+  }
+
+  function dismissInstallBanner() {
+    const dismissedUntil = Date.now() + INSTALL_BANNER_DISMISS_MS;
+    setInstallBannerDismissedUntil(dismissedUntil);
+
+    try {
+      window.localStorage.setItem(INSTALL_BANNER_DISMISSED_KEY, String(dismissedUntil));
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn("[PWA] No fue posible guardar el cierre del banner:", error);
+      }
+    }
+  }
+
+  function openCommunityView() {
+    if (latestCommunityPost?.id) {
+      const seenPost = {
+        id: latestCommunityPost.id,
+        created_at: latestCommunityPost.created_at || null,
+      };
+      setLastSeenCommunityPost(seenPost);
+      try {
+        window.localStorage.setItem(COMMUNITY_LAST_SEEN_KEY, JSON.stringify(seenPost));
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn("[CommunityBadge] No fue posible guardar la última publicación vista:", error);
+        }
+      }
+    }
+
+    setShowCommunity(true);
+    window.scrollTo({ top: 0 });
   }
 
   async function fetchProducts(context = "unknown") {
@@ -5003,12 +5112,23 @@ export default function App() {
         onCategory={selectCategory}
         onProduct={(product) => openProductGroup(buildGroupedProducts([product])[0])}
         onNewArrivals={openNewArrivalsView}
-        onCommunity={() => { setShowCommunity(true); window.scrollTo({ top: 0 }); }}
+        onCommunity={openCommunityView}
+        hasNewCommunityPost={isCommunityPostNewer(latestCommunityPost, lastSeenCommunityPost)}
         onReviews={() => { setCurrentView("reviews"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
         onFavorites={openFavoritesView}
         onContact={() => { setCurrentView("contact"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
         onPolicies={() => { setCurrentView("policies"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
         onAdminAccess={openHiddenAdminAccess}
+        showInstallBanner={
+          homeSettings.show_install_banner !== false
+          && !isAppInstalled
+          && installBannerDismissedUntil <= Date.now()
+        }
+        showInstallOption={!isAppInstalled}
+        installGuide={installGuide}
+        onInstall={(location) => handleInstallAppClick(location)}
+        onDismissInstall={dismissInstallBanner}
+        onCloseInstallGuide={() => setInstallGuide("")}
       />
 
       {showAdmin && (
@@ -6312,7 +6432,7 @@ export default function App() {
 
       {["home", "collections", "reviews", "contact", "policies"].includes(currentView) && (
         <BoutiqueFooter
-          onCommunity={() => setShowCommunity(true)}
+          onCommunity={openCommunityView}
           onCollections={() => { setCurrentView("collections"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
           onReviews={() => { setCurrentView("reviews"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
           onContact={() => { setCurrentView("contact"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
