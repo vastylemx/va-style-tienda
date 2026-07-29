@@ -1,15 +1,21 @@
 import { publicSupabase, supabase } from "./supabase";
-import logo from "./assets/5EBEC563-AD5B-47FB-AFE9-482289C13B90.jpg";
 import { useState, useEffect, useRef } from "react";
 import CommunityFeed from "./CommunityFeed";
 import CommunityAdmin from "./CommunityAdmin";
 import AdminLogin from "./AdminLogin";
+import HomeAdmin from "./HomeAdmin";
+import HomeExperience, { BoutiqueFooter } from "./HomeExperience";
+import { CollectionsExperience, InformationExperience, ReviewsExperience } from "./ExploreExperiences";
+import WhatsAppAdvisorLink from "./WhatsAppAdvisorLink";
+import "./premium-public.css";
+import "./product-experience.css";
 import {
   getAdminSession,
   signOutAdmin,
   subscribeToAdminSession,
   verifyAdminSession,
 } from "./adminAuth";
+import { adminFetch } from "./adminApi";
 
 const categories = [
   "Todas",
@@ -26,7 +32,6 @@ const categories = [
 
 const PRODUCTS_PER_PAGE = 20;
 const TEST_COMMUNITY = false;
-const COMMUNITY_UNREAD_COUNT = 1; // TODO: reemplazar por conteo real de novedades/comunidad.
 
 const CART_STORAGE_KEY = "vaStyleCart";
 const ORDER_SENT_KEY = "vaStyleOrderSent";
@@ -37,7 +42,7 @@ const MERCADO_PAGO_MINIMUM_ITEMS = MERCADO_PAGO_TEST_MODE ? 1 : 6;
 const MERCADO_PAGO_MINIMUM_AMOUNT = MERCADO_PAGO_TEST_MODE ? 6 : 50;
 const MP_PENDING_ORDER_KEY = "vaStylePendingMercadoPagoOrder";
 const FAVORITES_STORAGE_KEY = "vaStyleFavorites";
-const INSTALL_BANNER_VIEW_KEY = "vaStyleInstallBannerViewed";
+const ADMIN_ENTRY_HASH = "#/admin";
 
 const DEFAULT_HOME_SETTINGS = {
   id: 1,
@@ -281,15 +286,6 @@ function getShippingCost(pieces) {
   return null;
 }
 
-function getServiceFee(amount) {
-  if (TEST_FREE_SHIPPING) return 0;
-
-  const baseAmount = getCleanPrice(amount);
-  if (baseAmount <= 0) return 0;
-
-  return Math.min(Math.round(baseAmount * 0.025 + 4), 100);
-}
-
 function getItemShippingFactor(item) {
   const directFactor = Number(item?.shippingFactor);
   const databaseFactor = Number(item?.shipping_factor);
@@ -372,6 +368,7 @@ function buildGroupedProducts(productList) {
         created_at: product.created_at,
         image: product.image,
         sizes: product.sizes || "",
+        description: product.description || "",
         variants: [],
       });
     }
@@ -474,14 +471,6 @@ function compressImage(file, maxWidth = 1200, quality = 0.78) {
   });
 }
 
-function WhatsAppIcon() {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true">
-      <path d="M16 3C8.8 3 3 8.6 3 15.5c0 2.4.7 4.7 2 6.7L3.8 29l7-1.8c1.6.8 3.4 1.2 5.2 1.2 7.2 0 13-5.6 13-12.5S23.2 3 16 3Zm0 22.9c-1.7 0-3.3-.4-4.7-1.2l-.4-.2-4.1 1.1.8-4-.3-.4c-1.1-1.7-1.7-3.6-1.7-5.6 0-5.6 4.7-10.1 10.4-10.1s10.4 4.5 10.4 10.1S21.7 25.9 16 25.9Zm5.7-7.6c-.3-.2-1.9-.9-2.2-1-.3-.1-.5-.2-.8.2-.2.3-.9 1-.1.2-.2.2-.4.3-.7.1-2-.9-3.3-2.1-4.1-4-.1-.3 0-.5.1-.7.1-.1.3-.4.5-.5.2-.2.2-.3.3-.5.1-.2.1-.4 0-.6-.1-.2-.8-1.8-1.1-2.4-.3-.6-.5-.5-.8-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1.2 1.1-1.2 2.7s1.2 3.1 1.3 3.3c.2.2 2.3 3.6 5.7 5 .8.3 1.5.5 2 .7.8.2 1.6.2 2.2.1.7-.1 1.9-.8 2.2-1.5.3-.7.3-1.4.2-1.5-.1-.2-.3-.3-.6-.4Z" />
-    </svg>
-  );
-}
-
 function FacebookIcon() {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -506,10 +495,24 @@ function TikTokIcon() {
   );
 }
 
+function AddToBagIcon({ added = false }) {
+  return (
+    <svg className="product-bag-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M6.5 8.5h11l1 12h-13l1-12Z" />
+      <path d="M9 9V6.5a3 3 0 0 1 6 0V9" />
+      {added ? <path d="m9.2 14.2 1.8 1.8 3.9-4" /> : <path d="M9.5 14.5h5M12 12v5" />}
+    </svg>
+  );
+}
+
 export default function App() {
   const [showCommunity, setShowCommunity] = useState(TEST_COMMUNITY);
   const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState("");
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewsError, setReviewsError] = useState("");
   const [showroomItems, setShowroomItems] = useState([]);
   const [homeSettings, setHomeSettings] = useState(DEFAULT_HOME_SETTINGS);
   const [homeForm, setHomeForm] = useState({
@@ -519,7 +522,7 @@ export default function App() {
     saving: false,
   });
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
-  const [canInstallApp, setCanInstallApp] = useState(false);
+  const [, setCanInstallApp] = useState(false);
   const [showCategorySheet, setShowCategorySheet] = useState(false);
   const [currentView, setCurrentView] = useState("home");
   const [favorites, setFavorites] = useState(() => {
@@ -540,10 +543,13 @@ export default function App() {
     }
   });
   const [showAdmin, setShowAdmin] = useState(false);
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [adminAuthLoading, setAdminAuthLoading] = useState(true);
+  const [showAdminLogin, setShowAdminLogin] = useState(
+    () => typeof window !== "undefined" && window.location.hash === ADMIN_ENTRY_HASH
+  );
+  const [, setAdminAuthLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState(null);
   const [toast, setToast] = useState("");
+  const [deletingProductId, setDeletingProductId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOrder, setSortOrder] = useState("az");
   const [currentPage, setCurrentPage] = useState(1);
@@ -571,6 +577,7 @@ export default function App() {
     mediaFile: null,
   });
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewBusyId, setReviewBusyId] = useState(null);
   const [showroomForm, setShowroomForm] = useState({
     imageFile: null,
     uploading: false,
@@ -580,7 +587,9 @@ export default function App() {
   const [selectedGallery, setSelectedGallery] = useState([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedProductGroup, setSelectedProductGroup] = useState(null);
-  const [variantQuantities, setVariantQuantities] = useState({});
+  const [showVariantPanel, setShowVariantPanel] = useState(false);
+  const [addedVariantId, setAddedVariantId] = useState(null);
+  const [, setVariantQuantities] = useState({});
   const [imageZoom, setImageZoom] = useState(1);
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
@@ -601,6 +610,8 @@ export default function App() {
   const lastTapRef = useRef(0);
   const dragRef = useRef(null);
   const toastTimerRef = useRef(null);
+  const addedVariantTimerRef = useRef(null);
+  const deletingProductIdsRef = useRef(new Set());
   const randomTopProductGroupsRef = useRef([]);
 
   const [newProduct, setNewProduct] = useState({
@@ -640,9 +651,20 @@ export default function App() {
     };
 
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/service-worker.js").catch((error) => {
-        console.log("Service worker registration failed:", error);
-      });
+      if (import.meta.env.PROD) {
+        navigator.serviceWorker.register("/service-worker.js").catch((error) => {
+          console.log("Service worker registration failed:", error);
+        });
+      } else {
+        navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+          .catch((error) => console.log("Service worker cleanup failed:", error));
+        if ("caches" in window) {
+          window.caches.keys()
+            .then((keys) => Promise.all(keys.map((key) => window.caches.delete(key))))
+            .catch((error) => console.log("Development cache cleanup failed:", error));
+        }
+      }
     }
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
@@ -671,7 +693,7 @@ export default function App() {
 
     if (paymentStatus === "success") {
       const pendingOrderRaw = localStorage.getItem(MP_PENDING_ORDER_KEY);
-      let pendingOrder = null;
+      let pendingOrder;
 
       try {
         pendingOrder = pendingOrderRaw ? JSON.parse(pendingOrderRaw) : null;
@@ -690,6 +712,9 @@ export default function App() {
 
       localStorage.removeItem(MP_PENDING_ORDER_KEY);
       localStorage.removeItem(CART_STORAGE_KEY);
+      // La URL de retorno de Mercado Pago es una fuente externa; limpiar el
+      // carrito aquí evita conservar artículos de una compra ya confirmada.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCart([]);
       showToast("Pago recibido ✅ Carrito limpiado");
       window.history.replaceState({}, "", window.location.pathname);
@@ -720,7 +745,9 @@ export default function App() {
       if (active) {
         setShowAdmin(false);
         setAdminModal(null);
-        setShowAdminLogin(false);
+        setShowAdminLogin(
+          typeof window !== "undefined" && window.location.hash === ADMIN_ENTRY_HASH
+        );
       }
 
       try {
@@ -777,6 +804,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const handleAdminHash = () => {
+      if (!showAdmin) {
+        setShowAdminLogin(window.location.hash === ADMIN_ENTRY_HASH);
+      }
+    };
+
+    window.addEventListener("hashchange", handleAdminHash);
+    return () => window.removeEventListener("hashchange", handleAdminHash);
+  }, [showAdmin]);
+
+  useEffect(() => {
     if (!showAdmin) return;
 
     fetchProducts("admin-open");
@@ -806,6 +844,9 @@ export default function App() {
     return () => {
       supabase.removeChannel(channel);
     };
+    // fetchOrders es una declaración histórica recreada por render. Incluirla
+    // sin convertir todo el flujo a useCallback reabriría la suscripción.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAdmin]);
 
   useEffect(() => {
@@ -817,6 +858,9 @@ export default function App() {
   }, [favorites]);
 
   useEffect(() => {
+    // Este efecto mantiene paginación y filtros históricos sincronizados.
+    // Moverlo a cada entrada de búsqueda/categoría cambiaría más rutas.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPage(1);
 
     if (category) {
@@ -830,6 +874,7 @@ export default function App() {
     return () => {
       document.body.style.overflow = "auto";
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (addedVariantTimerRef.current) clearTimeout(addedVariantTimerRef.current);
     };
   }, []);
 
@@ -893,6 +938,8 @@ export default function App() {
   }
 
   async function fetchProducts(context = "unknown") {
+    setProductsLoading(true);
+    setProductsError("");
     const { data, error } = await publicSupabase
       .from("products")
       .select("*")
@@ -900,6 +947,8 @@ export default function App() {
 
     if (error) {
       console.error("[AdminProducts] Error SELECT products:", error);
+      setProductsError("Revisa tu conexión e inténtalo nuevamente.");
+      setProductsLoading(false);
       return;
     }
 
@@ -926,22 +975,30 @@ export default function App() {
         price: Number(p.wholesale_price) || 0,
         shippingFactor: Number(p.shipping_factor) || getDefaultShippingFactor(p.category),
         image: p.image_url,
+        description: p.description || "",
+        available_at: p.available_at || p.available_from || p.release_date || null,
       }));
       return nextProducts;
     });
+    setProductsLoading(false);
   }
 
   async function fetchReviews() {
+    setReviewsLoading(true);
+    setReviewsError("");
     const { data, error } = await publicSupabase
       .from("reviews")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) {
+      setReviewsError("Revisa tu conexión e inténtalo nuevamente.");
+      setReviewsLoading(false);
       return;
     }
 
     setReviews(data || []);
+    setReviewsLoading(false);
   }
 
   async function fetchShowroomArrivals() {
@@ -1012,8 +1069,6 @@ export default function App() {
 
   const approvedReviews = reviews.filter((review) => review.approved);
   const pendingReviews = reviews.filter((review) => !review.approved);
-  const showroomArrivals = showroomItems.slice(0, 12);
-
   const normalizedSearch = searchTerm.trim().toLowerCase();
 
   const filtered = products.filter((p) => {
@@ -1021,6 +1076,8 @@ export default function App() {
     const matchesView =
       currentView === "novedades"
         ? Boolean(p.isNewArrival || p.is_new_arrival)
+        : currentView === "upcoming"
+          ? Boolean(p.available_at && new Date(p.available_at) > new Date())
         : currentView === "masVendidos"
           ? Boolean(p.isBestSeller || p.is_best_seller)
           : true;
@@ -1052,19 +1109,12 @@ export default function App() {
     currentView === "home" && category === "Todas" && !normalizedSearch
       ? getSessionRandomizedTopGroups(baseProductGroups, PRODUCTS_PER_PAGE, randomTopProductGroupsRef)
       : baseProductGroups;
+  const isCatalogView = ["catalog", "search", "novedades", "upcoming", "favoritos", "masVendidos"].includes(currentView);
   const totalPages = Math.max(1, Math.ceil(displayedProductGroups.length / PRODUCTS_PER_PAGE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * PRODUCTS_PER_PAGE;
   const paginatedProductGroups = displayedProductGroups.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
   const cartSummary = getCartSummary(cart);
-  const reviewAverage = approvedReviews.length
-    ? (
-        approvedReviews.reduce((sum, review) => sum + (Number(review.rating) || 5), 0) /
-        approvedReviews.length
-      ).toFixed(1)
-    : "5.0";
-  const reviewCount = approvedReviews.length;
-
   const subtotal = cart
     .map((item) => getCleanPrice(item.price))
     .reduce((sum, price) => sum + price, 0);
@@ -1088,47 +1138,9 @@ export default function App() {
     toastTimerRef.current = setTimeout(() => setToast(""), 1800);
   }
 
-  function addToCart(product) {
-    const sizeOptions = getSizeOptions(product.sizes);
-    const selectedSize = product.category === "Calzado" ? selectedSizes[product.id] : "";
-
-    if (product.category === "Calzado") {
-      if (!sizeOptions.length) {
-        alert("Este calzado todavía no tiene tallas registradas.");
-        return;
-      }
-
-      if (!selectedSize) {
-        alert("Selecciona la talla antes de agregar al carrito.");
-        return;
-      }
-    }
-
-    setCart((prevCart) => [
-      ...prevCart,
-      {
-        ...product,
-        selectedSize,
-        originalPrice: getCleanPrice(product.price),
-        discountPercent: getDiscountPercent(product.discountPercent),
-        price: getFinalPrice(product),
-        shippingFactor: getItemShippingFactor(product),
-      },
-    ]);
-
-    trackEvent("add_to_cart", {
-      item_id: product.modelCode || product.name,
-      item_name: product.name,
-      item_category: product.category,
-      value: getFinalPrice(product),
-      currency: "MXN",
-    });
-
-    showToast("Producto agregado al carrito ✅");
-  }
-
   function openProductGroup(group) {
     setSelectedProductGroup(group);
+    setShowVariantPanel(false);
     setVariantQuantities({});
     trackEvent("view_product_group", {
       item_id: group.code,
@@ -1141,71 +1153,9 @@ export default function App() {
 
   function closeProductGroup() {
     setSelectedProductGroup(null);
+    setShowVariantPanel(false);
     setVariantQuantities({});
     document.body.style.overflow = "auto";
-  }
-
-  function updateVariantQuantity(productId, nextQuantity) {
-    const safeQuantity = Math.max(0, Number(nextQuantity) || 0);
-
-    setVariantQuantities((prev) => ({
-      ...prev,
-      [productId]: safeQuantity,
-    }));
-  }
-
-  function addVariantsToCart(group) {
-    const itemsToAdd = [];
-
-    group.variants.forEach((variant) => {
-      const quantity = Number(variantQuantities[variant.id] || 0);
-      if (quantity <= 0) return;
-
-      const sizeOptions = getSizeOptions(variant.sizes);
-      const selectedSize = variant.category === "Calzado" ? selectedSizes[variant.id] : "";
-
-      if (variant.category === "Calzado") {
-        if (!sizeOptions.length) {
-          alert(`Este calzado todavía no tiene tallas registradas: ${variant.name}`);
-          return;
-        }
-
-        if (!selectedSize) {
-          alert(`Selecciona la talla para ${variant.name}.`);
-          return;
-        }
-      }
-
-      for (let i = 0; i < quantity; i++) {
-        itemsToAdd.push({
-          ...variant,
-          selectedSize,
-          originalPrice: getCleanPrice(variant.price),
-          discountPercent: getDiscountPercent(variant.discountPercent),
-          price: getFinalPrice(variant),
-          shippingFactor: getItemShippingFactor(variant),
-        });
-      }
-    });
-
-    if (!itemsToAdd.length) {
-      alert("Elige al menos una pieza antes de agregar al carrito.");
-      return;
-    }
-
-    setCart((prevCart) => [...prevCart, ...itemsToAdd]);
-
-    trackEvent("add_variants_to_cart", {
-      item_id: group.code,
-      item_name: group.name,
-      item_category: group.category,
-      quantity: itemsToAdd.length,
-      value: itemsToAdd.reduce((sum, item) => sum + getFinalPrice(item), 0),
-      currency: "MXN",
-    });
-
-    showToast("Colores agregados al carrito ✅");
-    closeProductGroup();
   }
 
   function addVariantDirectToCart(variant, group) {
@@ -1242,8 +1192,9 @@ export default function App() {
       value: getFinalPrice(variant),
       currency: "MXN",
     });
-
-    showToast("Producto agregado al carrito ✅");
+    setAddedVariantId(variant.id);
+    if (addedVariantTimerRef.current) clearTimeout(addedVariantTimerRef.current);
+    addedVariantTimerRef.current = window.setTimeout(() => setAddedVariantId(null), 900);
   }
 
   function openImage(product, gallery = []) {
@@ -1397,46 +1348,68 @@ export default function App() {
   async function deleteProduct(id) {
     if (id === undefined || id === null || id === "") {
       console.error("[AdminProducts] DELETE products skipped: invalid product id", id);
-      alert("No se pudo identificar el producto para borrarlo.");
+      alert("No se pudo identificar el producto para eliminarlo.");
       return;
     }
 
-    const confirmDelete = confirm("¿Seguro que quieres borrar este producto?");
+    const productId = String(id);
+    if (deletingProductIdsRef.current.has(productId)) return;
+
+    const confirmDelete = window.confirm(
+      "¿Seguro que deseas eliminar este producto?\n\nEsta acción es irreversible."
+    );
     if (!confirmDelete) return;
 
+    deletingProductIdsRef.current.add(productId);
+    setDeletingProductId(productId);
+
     try {
-      const session = await getAdminSession();
-      await verifyAdminSession(session);
-    } catch (sessionError) {
-      console.error("[AdminProducts] DELETE products blocked by invalid admin session:", sessionError);
-      alert("No se borró el producto. La sesión admin no tiene permiso o el producto no existe.");
-      setShowAdmin(false);
-      setAdminModal(null);
-      return;
+      const result = await adminFetch("/api/admin/product-delete", {
+        method: "DELETE",
+        body: JSON.stringify({ productId }),
+      });
+
+      if (!result?.confirmedDeleted || String(result.deletedProductId) !== productId) {
+        throw new Error("El servidor no confirmó la eliminación del producto solicitado.");
+      }
+
+      const hasSameId = (item) => String(item?.id) === productId;
+      const deletedProductGroup = buildGroupedProducts(products).find((group) =>
+        group.variants.some(hasSameId)
+      );
+      const shouldRemoveFavorite =
+        deletedProductGroup?.variants.length === 1 &&
+        deletedProductGroup.variants.some(hasSameId);
+
+      setCart((currentCart) => currentCart.filter((item) => !hasSameId(item)));
+      const favoriteKey = shouldRemoveFavorite ? getFavoriteKey(deletedProductGroup) : "";
+      setFavorites((currentFavorites) =>
+        currentFavorites.filter((item) => item !== favoriteKey && String(item) !== productId)
+      );
+      setProducts((prevProducts) => prevProducts.filter((product) => !hasSameId(product)));
+      setSelectedGallery((gallery) => gallery.filter((product) => !hasSameId(product)));
+      setSelectedProduct((product) => (hasSameId(product) ? null : product));
+      setSelectedProductGroup((group) => {
+        if (!group) return group;
+        const variants = group.variants.filter((variant) => !hasSameId(variant));
+        if (!variants.length) {
+          setShowVariantPanel(false);
+          return null;
+        }
+        return { ...group, variants };
+      });
+      showToast("Producto eliminado correctamente");
+    } catch (deleteError) {
+      console.error("[AdminProducts] Error eliminando producto:", {
+        productId,
+        error: deleteError,
+        payload: deleteError?.payload,
+      });
+      alert(deleteError?.message || "No se pudo eliminar el producto.");
+    } finally {
+      deletingProductIdsRef.current.delete(productId);
+      setDeletingProductId(null);
     }
-
-    const { data, error } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", id)
-      .select("id");
-
-    if (error) {
-      alert(error.message);
-      console.error("[AdminProducts] Error DELETE products:", error);
-      return;
-    }
-
-    if (!data?.length) {
-      const message = "No se borró el producto. La sesión admin no tiene permiso o el producto no existe.";
-      alert(message);
-      console.error("[AdminProducts] DELETE products returned no rows:", { id, data });
-      return;
-    }
-
-    setCart((currentCart) => currentCart.filter((item) => item.id !== id));
-    setProducts((prevProducts) => prevProducts.filter((product) => product.id !== id));
-    alert("Producto borrado correctamente");
   }
 
   function openAddProductModal() {
@@ -1513,6 +1486,63 @@ export default function App() {
       setShowAdminLogin(false);
       setAdminModal(null);
       setEditingProduct(null);
+      if (window.location.hash === ADMIN_ENTRY_HASH) {
+        window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+      }
+    }
+  }
+
+  function closeAdminLogin() {
+    setShowAdminLogin(false);
+    if (window.location.hash === ADMIN_ENTRY_HASH) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+    }
+  }
+
+  function openAdminPanel() {
+    if (!showAdmin) return;
+    setCurrentView("home");
+    window.setTimeout(() => {
+      document.getElementById("admin-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  async function openHiddenAdminAccess() {
+    if (showAdmin) {
+      openAdminPanel();
+      return;
+    }
+
+    try {
+      const session = await getAdminSession();
+      if (!session) {
+        window.history.replaceState(
+          {},
+          "",
+          `${window.location.pathname}${window.location.search}${ADMIN_ENTRY_HASH}`
+        );
+        setShowAdminLogin(true);
+        return;
+      }
+
+      const admin = await verifyAdminSession(session);
+      if (!admin) throw new Error("La sesión actual no tiene permisos administrativos.");
+
+      setShowAdmin(true);
+      setShowAdminLogin(false);
+      setCurrentView("home");
+      window.setTimeout(() => {
+        document.getElementById("admin-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    } catch (error) {
+      console.error("No fue posible abrir el acceso administrativo oculto:", error);
+      setShowAdmin(false);
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${window.location.search}${ADMIN_ENTRY_HASH}`
+      );
+      setShowAdminLogin(true);
     }
   }
 
@@ -1802,40 +1832,49 @@ export default function App() {
   }
 
   async function approveReview(id) {
-    const { data, error } = await supabase
-      .from("reviews")
-      .update({ approved: true })
-      .eq("id", id)
-      .select("*");
-
-    if (error) {
-      alert(error.message);
-      console.log(error);
-      return;
+    const reviewId = String(id);
+    setReviewBusyId(reviewId);
+    try {
+      const result = await adminFetch("/api/admin/review", {
+        method: "PATCH",
+        body: JSON.stringify({ reviewId, approved: true }),
+      });
+      if (!result?.review || String(result.review.id) !== reviewId || result.review.approved !== true) {
+        throw new Error("El servidor no confirmó la aprobación.");
+      }
+      setReviews((current) =>
+        current.map((review) => String(review.id) === reviewId ? result.review : review)
+      );
+      showToast("La reseña fue aprobada y ya puede aparecer en Inicio.");
+    } catch (error) {
+      console.error("[AdminReviews] No se pudo aprobar la reseña:", { reviewId, error });
+      alert(error.message || "No se pudo aprobar la reseña.");
+    } finally {
+      setReviewBusyId(null);
     }
-
-    setReviews((prev) =>
-      prev.map((review) =>
-        review.id === id
-          ? { ...review, approved: true }
-          : review
-      )
-    );
   }
 
   async function deleteReview(id) {
-    const confirmDelete = confirm("¿Seguro que quieres eliminar esta reseña?");
+    const confirmDelete = confirm("Esta reseña se eliminará de forma permanente y dejará de aparecer en la tienda. ¿Deseas continuar?");
     if (!confirmDelete) return;
-
-    const { error } = await supabase.from("reviews").delete().eq("id", id);
-
-    if (error) {
-      alert(error.message);
-      console.log(error);
-      return;
+    const reviewId = String(id);
+    setReviewBusyId(reviewId);
+    try {
+      const result = await adminFetch("/api/admin/review", {
+        method: "DELETE",
+        body: JSON.stringify({ reviewId }),
+      });
+      if (String(result?.deletedReviewId) !== reviewId) {
+        throw new Error("El servidor no confirmó la eliminación.");
+      }
+      setReviews((current) => current.filter((review) => String(review.id) !== reviewId));
+      showToast("Reseña eliminada correctamente");
+    } catch (error) {
+      console.error("[AdminReviews] No se pudo eliminar la reseña:", { reviewId, error });
+      alert(error.message || "No se pudo eliminar la reseña.");
+    } finally {
+      setReviewBusyId(null);
     }
-
-    fetchReviews();
   }
 
   async function uploadHomeMedia(file, currentUrl) {
@@ -2016,7 +2055,7 @@ export default function App() {
   }
 
   async function toggleNewArrival(product) {
-    const nextValue = !Boolean(product?.isNewArrival || product?.is_new_arrival);
+    const nextValue = !(product?.isNewArrival || product?.is_new_arrival);
     await updateProductFlag(
       product,
       "is_new_arrival",
@@ -2026,7 +2065,7 @@ export default function App() {
   }
 
   async function toggleBestSeller(product) {
-    const nextValue = !Boolean(product?.isBestSeller || product?.is_best_seller);
+    const nextValue = !(product?.isBestSeller || product?.is_best_seller);
     await updateProductFlag(
       product,
       "is_best_seller",
@@ -2036,45 +2075,13 @@ export default function App() {
   }
 
   async function toggleHomeFeatured(product) {
-    const nextValue = !Boolean(product?.isHomeFeatured || product?.is_home_featured);
+    const nextValue = !(product?.isHomeFeatured || product?.is_home_featured);
     await updateProductFlag(
       product,
       "is_home_featured",
       nextValue,
       nextValue ? "Producto marcado como destacado ✅" : "Producto quitado de destacados"
     );
-  }
-
-  function openMercadoPagoModal() {
-    if (!cart.length) {
-      alert("Tu carrito está vacío.");
-      return;
-    }
-
-    if (cart.length < MERCADO_PAGO_MINIMUM_ITEMS) {
-      alert(`Pedido mínimo para Mercado Pago: ${MERCADO_PAGO_MINIMUM_ITEMS} pieza${MERCADO_PAGO_MINIMUM_ITEMS === 1 ? "" : "s"}.`);
-      return;
-    }
-
-    if (needsShippingQuote) {
-      alert("Este pedido necesita cotización especial de envío. Envíalo por WhatsApp para confirmar el total.");
-      return;
-    }
-
-    if (total < MERCADO_PAGO_MINIMUM_AMOUNT) {
-      alert(`Monto mínimo para Mercado Pago: $${MERCADO_PAGO_MINIMUM_AMOUNT} MXN.`);
-      return;
-    }
-
-    trackEvent("mercado_pago_click", {
-      items: cart.length,
-      value: total,
-      currency: "MXN",
-      test_mode: MERCADO_PAGO_TEST_MODE,
-    });
-
-    setCheckoutForm({ name: "", phone: "" });
-    setCheckoutModalOpen(true);
   }
 
   function closeCheckoutModal() {
@@ -2358,10 +2365,22 @@ export default function App() {
   function selectCategory(nextCategory) {
     setSearchTerm("");
     setCategory(nextCategory);
-    setCurrentView("home");
+    setCurrentView("catalog");
     setCurrentPage(1);
     setShowCategorySheet(false);
     scrollToCatalog();
+  }
+
+  function openCatalogSearch() {
+    setCategory("Todas");
+    setCurrentView("search");
+    setCurrentPage(1);
+    window.setTimeout(() => document.getElementById("catalog-search")?.focus(), 90);
+  }
+
+  function openCatalogCart() {
+    setCurrentView("cart");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function openHomeView() {
@@ -2381,25 +2400,12 @@ export default function App() {
     scrollToCatalog();
   }
 
-  function openBestSellersView() {
-    setSearchTerm("");
-    setCategory("Todas");
-    setCurrentView("masVendidos");
-    setSortOrder("az");
-    setCurrentPage(1);
-    scrollToCatalog();
-  }
-
   function openFavoritesView() {
     setSearchTerm("");
     setCategory("Todas");
     setCurrentView("favoritos");
     setCurrentPage(1);
     scrollToCatalog();
-  }
-
-  function scrollToReviews() {
-    reviewsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function scrollToCatalog() {
@@ -3280,6 +3286,14 @@ export default function App() {
           background: #c94462;
           color: white;
           font-size: 14px;
+        }
+
+        .admin-toolbar .admin-toolbar-group {
+          flex: 0 0 100%;
+          color: #7a6b64;
+          font: 700 10px Arial;
+          letter-spacing: .16em;
+          text-align: center;
         }
 
         .admin-toolbar .logout-btn {
@@ -4973,146 +4987,60 @@ export default function App() {
             setShowAdmin(true);
             setShowAdminLogin(false);
           }}
-          onClose={() => setShowAdminLogin(false)}
+          onClose={closeAdminLogin}
         />
       )}
 
-      <header className="app-header">
-        <button
-          className="review-chip"
-          onClick={scrollToReviews}
-          aria-label="Ver reseñas"
-        >
-          <span className="review-star">★</span>
-          <span>
-            <strong>{reviewAverage}</strong> ({reviewCount})
-            <small>Reseñas</small>
-          </span>
-        </button>
-
-        <div className="app-logo-wrap">
-          <button
-            className="admin-secret"
-            onClick={() => {
-              if (showAdmin) return;
-              setShowAdminLogin(true);
-            }}
-            disabled={adminAuthLoading}
-            title={adminAuthLoading ? "Verificando sesión" : "Admin"}
-            aria-label="Abrir acceso administrativo"
-          >
-            •
-          </button>
-
-          <img src={logo} alt="V&A Style" />
-        </div>
-
-        <div className="header-actions">
-          <button
-            className="advisor-btn"
-            onClick={() => openLink("https://wa.me/524776311393")}
-          >
-            <WhatsAppIcon />
-            <span>Hablar con<br />un asesor</span>
-          </button>
-
-          <button
-            className="community-header-btn"
-            onClick={() => {
-              setShowCommunity(true);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-            aria-label="Abrir Comunidad V&A Style"
-          >
-            Comunidad 🔔
-            {COMMUNITY_UNREAD_COUNT > 0 && (
-              <span className="community-header-badge">{COMMUNITY_UNREAD_COUNT}</span>
-            )}
-          </button>
-
-          <button className="header-cart-btn" onClick={scrollToCart}>
-            🛒
-            {cart.length > 0 && <span className="cart-badge">{cart.length}</span>}
-          </button>
-        </div>
-      </header>
-
-      {homeSettings.show_install_banner && (
-        <section className="install-banner">
-          <div className="install-copy">
-            <strong>{homeSettings.install_banner_title || "Instala V & A Style"}</strong>
-            <span>{homeSettings.install_banner_subtitle || "Lleva tu tienda siempre contigo"}</span>
-          </div>
-          <button className="install-action" onClick={handleInstallAppClick} aria-label="Instalar V & A Style">
-            ↓
-          </button>
-        </section>
-      )}
-
-      <section className="hero-premium">
-        <div className="hero-premium-copy">
-          <h1>{homeSettings.hero_title || DEFAULT_HOME_SETTINGS.hero_title}</h1>
-          <p>{homeSettings.hero_subtitle || DEFAULT_HOME_SETTINGS.hero_subtitle}</p>
-        </div>
-        <div
-          className="hero-premium-image"
-          style={{ backgroundImage: `url(${homeSettings.hero_image_url || FALLBACK_HOME_IMAGE})` }}
-        />
-      </section>
-
-      <section className="home-feature-cards">
-        <button
-          className="home-feature-card"
-          onClick={openNewArrivalsView}
-        >
-          <div>
-            <strong>{homeSettings.new_arrivals_title || DEFAULT_HOME_SETTINGS.new_arrivals_title}</strong>
-            <span>{homeSettings.new_arrivals_subtitle || DEFAULT_HOME_SETTINGS.new_arrivals_subtitle}</span>
-            <em>Ver todo</em>
-          </div>
-          <img
-            src={homeSettings.new_arrivals_image_url || FALLBACK_HOME_IMAGE}
-            alt="New Arrivals V & A Style"
-            loading="lazy"
-            decoding="async"
-          />
-        </button>
-
-        <button
-          className="home-feature-card"
-          onClick={openBestSellersView}
-        >
-          <div>
-            <strong>{homeSettings.best_sellers_title || DEFAULT_HOME_SETTINGS.best_sellers_title}</strong>
-            <span>{homeSettings.best_sellers_subtitle || DEFAULT_HOME_SETTINGS.best_sellers_subtitle}</span>
-            <em>Ver todo</em>
-          </div>
-          <img
-            src={homeSettings.best_sellers_image_url || FALLBACK_HOME_IMAGE}
-            alt="Más vendidos V & A Style"
-            loading="lazy"
-            decoding="async"
-          />
-        </button>
-      </section>
+      <HomeExperience
+        products={products}
+        reviews={approvedReviews}
+        homeSettings={{ ...homeSettings, hero_image_url: homeSettings.hero_image_url || FALLBACK_HOME_IMAGE }}
+        cartCount={cart.length}
+        showContent={currentView === "home"}
+        onHome={openHomeView}
+        onCart={openCatalogCart}
+        onSearch={openCatalogSearch}
+        onCategory={selectCategory}
+        onProduct={(product) => openProductGroup(buildGroupedProducts([product])[0])}
+        onNewArrivals={openNewArrivalsView}
+        onCommunity={() => { setShowCommunity(true); window.scrollTo({ top: 0 }); }}
+        onReviews={() => { setCurrentView("reviews"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+        onFavorites={openFavoritesView}
+        onContact={() => { setCurrentView("contact"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+        onPolicies={() => { setCurrentView("policies"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+        onAdminAccess={openHiddenAdminAccess}
+      />
 
       {showAdmin && (
-        <div className="admin-toolbar">
+        <div className="admin-toolbar" id="admin-panel">
+          <span className="admin-toolbar-group">HOME</span>
+          <button onClick={() => setAdminModal("home")}>🏠 Inicio, banners y WhatsApp</button>
+          <button onClick={() => setAdminModal("showroom")}>✨ Showroom</button>
+          <span className="admin-toolbar-group">CONTENIDO</span>
+          <button onClick={() => setAdminModal("community")}>💬 Comunidad</button>
+          <button onClick={() => setAdminModal("reviews")}>⭐ Reseñas ({pendingReviews.length})</button>
+          <span className="admin-toolbar-group">VENTAS</span>
           <button onClick={openAddProductModal}>➕ Agregar producto</button>
           <button onClick={openBulkUploadModal}>📦 Carga masiva</button>
-          <button onClick={() => setAdminModal("showroom")}>✨ Showroom</button>
-          <button onClick={() => setAdminModal("home")}>🏠 Home</button>
-          <button onClick={() => setAdminModal("community")}>💬 Comunidad</button>
           <button onClick={() => { setAdminModal("orders"); setNewOrderNotice(""); fetchOrders(); }}>🧾 Pedidos {orders.length ? `(${orders.length})` : ""}</button>
-          <button onClick={() => setAdminModal("reviews")}>⭐ Reseñas ({pendingReviews.length})</button>
           <button className="logout-btn" onClick={closeAdminSession}>🚪 Cerrar sesión admin</button>
         </div>
       )}
 
-      <main className="main">
-        <section ref={catalogRef}>
+      {(isCatalogView || currentView === "cart") && (
+        <>
+      <main className={`main premium-public-main${currentView === "cart" ? " is-cart-view" : ""}`} id="catalogo">
+        {isCatalogView && (
+        <section className="premium-catalog" ref={catalogRef}>
+          <header className="premium-page-header">
+            <button type="button" onClick={openHomeView} aria-label="Volver al inicio">←</button>
+            <span>{currentView === "search" ? "BÚSQUEDA" : currentView === "favoritos" ? "TU SELECCIÓN" : "CATÁLOGO"}</span>
+            <h1>{currentView === "search" ? "Buscar" : currentView === "favoritos" ? "Favoritos" : category === "Todas" ? "Todas las piezas" : category}</h1>
+            <p>{displayedProductGroups.length} {displayedProductGroups.length === 1 ? "modelo" : "modelos"}</p>
+          </header>
           <div className="catalog-tools">
             <input
+              id="catalog-search"
               className="search-input"
               placeholder="🔎 Buscar por código, modelo, marca o categoría"
               value={searchTerm}
@@ -5231,8 +5159,16 @@ export default function App() {
             </>
           )}
         </section>
+        )}
 
-        <aside className="side" ref={cartRef}>
+        {currentView === "cart" && (
+        <aside className="side premium-cart-view" ref={cartRef}>
+          <header className="premium-page-header">
+            <button type="button" onClick={openHomeView} aria-label="Volver al inicio">←</button>
+            <span>TU PEDIDO</span>
+            <h1>Carrito</h1>
+            <p>{cart.length} {cart.length === 1 ? "pieza" : "piezas"}</p>
+          </header>
           <div className="box">
             <div className="box-header">
               <span>🛒 Tu carrito ({cart.length})</span>
@@ -5297,14 +5233,16 @@ export default function App() {
                   <button className="whatsapp-order-btn" onClick={openAdvisorOrderModal}>
                     Enviar pedido a un asesor
                   </button>
+                  <WhatsAppAdvisorLink screen="cart" className="whatsapp-advisor-cta--full" />
                 </>
               )}
             </div>
           </div>
         </aside>
+        )}
       </main>
 
-      <section className="info-section">
+      {currentView === "legacy-info" && <section className="info-section">
         <div className="info-card" ref={aboutRef}>
           <h2>Nosotros</h2>
           <p>
@@ -5342,12 +5280,7 @@ export default function App() {
           </p>
 
           <div className="contact-buttons">
-            <button
-              className="contact-btn whatsapp-btn"
-              onClick={() => openLink("https://wa.me/524776311393")}
-            >
-              <WhatsAppIcon /> WhatsApp Ventas
-            </button>
+            <WhatsAppAdvisorLink screen="contact" />
 
             <button
               className="contact-btn facebook-btn"
@@ -5377,9 +5310,9 @@ export default function App() {
             </button>
           </div>
         </div>
-      </section>
+      </section>}
 
-      <section className="reviews-section" ref={reviewsRef}>
+      {currentView === "legacy-reviews" && <section className="reviews-section" id="resenas" ref={reviewsRef}>
         <div className="section-title-wrap">
           <h2>⭐ Opiniones de nuestros clientes</h2>
           <p>Experiencias reales de clientes V & A Style.</p>
@@ -5446,9 +5379,47 @@ export default function App() {
             {reviewSubmitting ? "Enviando..." : "Enviar reseña"}
           </button>
         </div>
-      </section>
+      </section>}
+        </>
+      )}
 
-      {cart.length > 0 && (
+      {currentView === "collections" && (
+        <CollectionsExperience
+          products={products}
+          favorites={favorites}
+          loading={productsLoading}
+          error={productsError}
+          onRetry={() => fetchProducts("collections-retry")}
+          onBack={openHomeView}
+          onCategory={selectCategory}
+          onNewArrivals={openNewArrivalsView}
+          onUpcoming={() => {
+            setSearchTerm("");
+            setCategory("Todas");
+            setCurrentView("upcoming");
+            setSortOrder("recent");
+            setCurrentPage(1);
+            scrollToCatalog();
+          }}
+          onFavorites={openFavoritesView}
+        />
+      )}
+
+      {currentView === "reviews" && (
+        <ReviewsExperience
+          reviews={approvedReviews}
+          loading={reviewsLoading}
+          error={reviewsError}
+          onRetry={fetchReviews}
+          onBack={openHomeView}
+        />
+      )}
+
+      {(currentView === "contact" || currentView === "policies") && (
+        <InformationExperience type={currentView} onBack={openHomeView} />
+      )}
+
+      {isCatalogView && cart.length > 0 && (
         <button
           className="floating-cart"
           onClick={scrollToCart}
@@ -5571,116 +5542,106 @@ export default function App() {
       )}
 
       {selectedProductGroup && (
-        <div className="modal-overlay" onClick={closeProductGroup}>
-          <div className="variants-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="variants-header">
-              <div>
-                <h3>{selectedProductGroup.code}</h3>
-                <p>{selectedProductGroup.brand} · ${formatMoney(getFinalPrice(selectedProductGroup))} MXN</p>
-                <p>Desliza a los lados y elige cuántas piezas quieres de cada color.</p>
-              </div>
-              <button className="modal-close-btn" onClick={closeProductGroup}>×</button>
-            </div>
+        <div className="product-experience" role="dialog" aria-modal="true" aria-label={`Producto ${selectedProductGroup.code}`}>
+          <header className="product-experience__topbar">
+            <button type="button" onClick={closeProductGroup} aria-label="Cerrar producto">←</button>
+            <span>V &amp; A STYLE</span>
+            <button
+              type="button"
+              className={isFavoriteGroup(selectedProductGroup) ? "is-favorite" : ""}
+              onClick={() => toggleFavoriteGroup(selectedProductGroup)}
+              aria-label={isFavoriteGroup(selectedProductGroup) ? "Quitar de favoritos" : "Agregar a favoritos"}
+            >
+              {isFavoriteGroup(selectedProductGroup) ? "♥" : "♡"}
+            </button>
+          </header>
 
-            <div className="variants-scroll">
-              {selectedProductGroup.variants.map((variant) => (
-                <div className="variant-card" key={variant.id}>
-                  <img
-                    src={variant.image}
-                    alt={variant.name}
-                    loading="lazy"
-                    decoding="async"
-                    onClick={() => openImage(variant, selectedProductGroup.variants)}
-                  />
-
-                  <div className="variant-body">
-                    <div className="variant-color">{variant.variantColor}</div>
-                    {variant.brand && <div className="brand">{variant.brand}</div>}
-
-                    {getDiscountPercent(variant.discountPercent) > 0 ? (
-                      <div className="price-block">
-                        <span className="old-price">${formatMoney(variant.price)} MXN</span>
-                        <div className="sale-price">${formatMoney(getFinalPrice(variant))} MXN</div>
-                      </div>
-                    ) : (
-                      <div className="price">${formatMoney(variant.price)} MXN</div>
-                    )}
-
-                    {variant.category === "Calzado" && (
-                      <select
-                        className="size-select"
-                        value={selectedSizes[variant.id] || ""}
-                        onChange={(e) =>
-                          setSelectedSizes((prev) => ({
-                            ...prev,
-                            [variant.id]: e.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Talla</option>
-                        {getSizeOptions(variant.sizes).map((size) => (
-                          <option key={size} value={size}>{size}</option>
-                        ))}
-                      </select>
-                    )}
-
-                    <button
-                      className="variant-plus-btn"
-                      onClick={() => addVariantDirectToCart(variant, selectedProductGroup)}
-                      aria-label={`Agregar ${variant.name} al carrito`}
-                    >
-                      +
-                    </button>
-
-                    {showAdmin && (
-                      <div style={{ marginTop: "10px" }}>
-                        <button
-                          className="cart-btn"
-                          style={{ width: "100%", marginBottom: "8px" }}
-                          onClick={() => toggleNewArrival(variant)}
-                        >
-                          {variant.isNewArrival ? "Quitar novedad" : "Marcar novedad"}
-                        </button>
-
-                        <button
-                          className="cart-btn"
-                          style={{ width: "100%", marginBottom: "8px" }}
-                          onClick={() => toggleBestSeller(variant)}
-                        >
-                          {variant.isBestSeller ? "Quitar más vendido" : "Marcar más vendido"}
-                        </button>
-
-                        <button
-                          className="cart-btn"
-                          style={{ width: "100%", marginBottom: "8px" }}
-                          onClick={() => toggleHomeFeatured(variant)}
-                        >
-                          {variant.isHomeFeatured ? "Quitar destacado" : "Marcar destacado"}
-                        </button>
-
-                        <button
-                          className="pink-btn"
-                          style={{ width: "100%", marginBottom: "8px" }}
-                          onClick={() => startEditProduct(variant)}
-                        >
-                          Editar
-                        </button>
-
-                        <button
-                          className="delete-btn"
-                          onClick={() => deleteProduct(variant.id)}
-                        >
-                          Borrar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+          <div className="product-experience__scroll">
+            <section className="product-gallery" aria-label="Galería de producto">
+              {selectedProductGroup.variants.map((variant, index) => (
+                <button type="button" key={variant.id} onClick={() => openImage(variant, selectedProductGroup.variants)} aria-label={`Ampliar imagen ${index + 1}`}>
+                  <img src={variant.image} alt={variant.name} loading={index === 0 ? "eager" : "lazy"} decoding="async" />
+                </button>
               ))}
-            </div>
+            </section>
+            {selectedProductGroup.variants.length > 1 && (
+              <div className="product-gallery-dots" aria-hidden="true">
+                {selectedProductGroup.variants.map((variant) => <i key={variant.id} />)}
+              </div>
+            )}
 
-
+            <section className="product-essential-info">
+              {selectedProductGroup.brand && <span>{selectedProductGroup.brand}</span>}
+              <h1>{selectedProductGroup.code}</h1>
+              <strong>${formatMoney(getFinalPrice(selectedProductGroup))} MXN</strong>
+              <button type="button" onClick={() => setShowVariantPanel(true)}>🎨 Ver colores <b>→</b></button>
+              <WhatsAppAdvisorLink screen="product" className="whatsapp-advisor-cta--full" />
+              {selectedProductGroup.description && (
+                <details>
+                  <summary>Descripción <b>+</b></summary>
+                  <p>{selectedProductGroup.description}</p>
+                </details>
+              )}
+            </section>
           </div>
+
+          {showVariantPanel && (
+            <div className="color-sheet-backdrop" onClick={() => setShowVariantPanel(false)}>
+              <section className="color-sheet" onClick={(event) => event.stopPropagation()} aria-label="Colores disponibles">
+                <header>
+                  <div><span>SELECCIONA</span><h2>Colores</h2></div>
+                  <button type="button" onClick={() => setShowVariantPanel(false)} aria-label="Cerrar colores">×</button>
+                </header>
+                <div className="color-sheet__list">
+                  {selectedProductGroup.variants.map((variant) => (
+                    <article key={variant.id}>
+                      <button type="button" className="color-sheet__image" onClick={() => openImage(variant, selectedProductGroup.variants)} aria-label={`Ampliar ${variant.variantColor}`}>
+                        <img src={variant.image} alt={variant.name} loading="lazy" decoding="async" />
+                      </button>
+                      <div className="color-sheet__info">
+                        <strong>{variant.variantColor || variant.name}</strong>
+                        <span>{variant.modelCode || selectedProductGroup.code}</span>
+                        {variant.category === "Calzado" && (
+                          <select
+                            className="size-select"
+                            aria-label={`Talla para ${variant.variantColor || variant.name}`}
+                            value={selectedSizes[variant.id] || ""}
+                            onChange={(event) => setSelectedSizes((current) => ({ ...current, [variant.id]: event.target.value }))}
+                          >
+                            <option value="">Talla</option>
+                            {getSizeOptions(variant.sizes).map((size) => <option key={size} value={size}>{size}</option>)}
+                          </select>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className={`add-to-bag${addedVariantId === variant.id ? " is-added" : ""}`}
+                        onClick={() => addVariantDirectToCart(variant, selectedProductGroup)}
+                        aria-label={`Agregar ${variant.name} al carrito`}
+                      >
+                        <AddToBagIcon added={addedVariantId === variant.id} />
+                      </button>
+                      {showAdmin && (
+                        <div className="color-sheet__admin">
+                          <button type="button" onClick={() => toggleNewArrival(variant)}>{variant.isNewArrival ? "Quitar novedad" : "Marcar novedad"}</button>
+                          <button type="button" onClick={() => toggleBestSeller(variant)}>{variant.isBestSeller ? "Quitar más vendido" : "Marcar más vendido"}</button>
+                          <button type="button" onClick={() => toggleHomeFeatured(variant)}>{variant.isHomeFeatured ? "Quitar destacado" : "Marcar destacado"}</button>
+                          <button type="button" onClick={() => startEditProduct(variant)}>Editar</button>
+                          <button
+                            type="button"
+                            onClick={() => deleteProduct(variant.id)}
+                            disabled={deletingProductId === String(variant.id)}
+                          >
+                            {deletingProductId === String(variant.id) ? "Eliminando…" : "Borrar"}
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       )}
 
@@ -5761,9 +5722,17 @@ export default function App() {
               <h3>{editingProduct ? "✏️ Editar producto" : "➕ Agregar producto"}</h3>
               <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
             </div>
+            <button type="button" className="home-admin-back" onClick={closeAdminModal}>← Volver al panel</button>
 
+            <div className="bulk-note">
+              {editingProduct
+                ? "Actualiza la información necesaria y guarda los cambios. El producto conservará todo lo que no modifiques."
+                : "Completa nombre, categoría, precio e imagen. Después podrás ajustar opciones especiales si las necesitas."}
+            </div>
+
+            <label className="admin-label">Nombre o código del producto
             <input
-              placeholder="Nombre o código del producto"
+              placeholder="Ejemplo: BOLSA MK 101"
               value={newProduct.name}
               onChange={(e) =>
                 setNewProduct({
@@ -5772,9 +5741,11 @@ export default function App() {
                 })
               }
             />
+            </label>
 
+            <label className="admin-label">Marca
             <input
-              placeholder="Marca. Ej: MICHAEL KORS, COACH, NIKE"
+              placeholder="Ejemplo: MICHAEL KORS"
               value={newProduct.brand}
               onChange={(e) =>
                 setNewProduct({
@@ -5783,7 +5754,9 @@ export default function App() {
                 })
               }
             />
+            </label>
 
+            <label className="admin-label">Categoría
             <select
               value={newProduct.category}
               onChange={(e) =>
@@ -5804,6 +5777,7 @@ export default function App() {
               <option value="Hombre">Hombre</option>
               <option value="Calzado">Calzado</option>
             </select>
+            </label>
 
             {newProduct.category === "Calzado" && (
               <input
@@ -5815,14 +5789,19 @@ export default function App() {
               />
             )}
 
+            <label className="admin-label">Precio mayorista
             <input
-              placeholder="Precio mayorista"
+              placeholder="Ejemplo: 850"
               value={newProduct.precio_mayorista}
               onChange={(e) => setNewProduct({ ...newProduct, precio_mayorista: e.target.value })}
             />
+            </label>
 
+            <details className="home-admin-advanced">
+              <summary>Opciones avanzadas</summary>
+              <p>Configura envío, descuento y lugares especiales donde aparecerá el producto.</p>
             <input
-              placeholder="Factor de envío. Ej: cartera 0.3, bolsa 1, mochila 1.5, maleta chica 4"
+              placeholder="Espacio de envío. Ejemplo: bolsa 1, mochila 1.5"
               value={newProduct.shipping_factor}
               onChange={(e) => setNewProduct({ ...newProduct, shipping_factor: e.target.value })}
             />
@@ -5859,15 +5838,18 @@ export default function App() {
               />
               Destacado Home
             </label>
+            </details>
 
+            <label className="admin-label">Imagen principal
             <input
               type="file"
               accept="image/*"
               onChange={(e) => setNewProduct({ ...newProduct, imageFile: e.target.files[0] })}
             />
+            </label>
 
             <button className="pink-btn" style={{ width: "100%" }} onClick={saveProduct}>
-              {editingProduct ? "Guardar cambios" : "Guardar producto"}
+              {editingProduct ? "Guardar cambios" : "Publicar producto"}
             </button>
           </div>
         </div>
@@ -6006,10 +5988,17 @@ export default function App() {
         <div className="modal-overlay" onClick={closeAdminModal}>
           <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
             <div className="admin-modal-header">
-              <h3>🏠 Editar pantalla principal</h3>
+              <h3>Administración de Inicio</h3>
               <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
             </div>
+            <button type="button" className="home-admin-back" onClick={closeAdminModal}>← Volver al panel principal</button>
 
+            <HomeAdmin />
+
+            <details className="new-home-admin">
+              <summary>Opciones avanzadas</summary>
+              <div className="bulk-note">Estos ajustes pertenecen a la configuración anterior. Úsalos solo si necesitas mantener contenido de respaldo.</div>
+              <div className="home-admin-row">
             <label className="admin-label">
               Mostrar banner de instalación
               <select
@@ -6115,6 +6104,8 @@ export default function App() {
             >
               {homeForm.saving ? "Guardando..." : "Guardar pantalla principal"}
             </button>
+              </div>
+            </details>
           </div>
         </div>
       )}
@@ -6252,14 +6243,19 @@ export default function App() {
               <h3>⭐ Administrar reseñas</h3>
               <button className="modal-close-btn" onClick={closeAdminModal}>×</button>
             </div>
+            <button type="button" className="home-admin-back" onClick={closeAdminModal}>← Volver al panel</button>
 
-            {pendingReviews.length === 0 ? (
-              <div className="bulk-note">Todavía no hay reseñas.</div>
+            <div className="bulk-note">
+              Revisa cada opinión antes de publicarla. Al aprobarla podrá aparecer en Inicio y en la sección de Reseñas.
+            </div>
+
+            {reviews.length === 0 ? (
+              <div className="bulk-note">Todavía no hay reseñas para revisar.</div>
             ) : (
               <div className="admin-review-list">
-                {pendingReviews.map((review) => (
+                {[...pendingReviews, ...approvedReviews].map((review) => (
                   <div className="admin-review-item" key={review.id}>
-                    <strong>{review.customer_name}</strong>
+                    <strong>{review.customer_name} · {review.approved ? "Publicada" : "Pendiente de revisión"}</strong>
                     <div>{"⭐".repeat(Number(review.rating) || 5)}</div>
                     <p>{review.comment}</p>
                     {review.media_url && review.media_type === "video" && (
@@ -6276,11 +6272,11 @@ export default function App() {
                     )}
                     <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                       {!review.approved && (
-                        <button className="pink-btn" onClick={() => approveReview(review.id)}>
-                          Aprobar
+                        <button className="pink-btn" disabled={reviewBusyId === String(review.id)} onClick={() => approveReview(review.id)}>
+                          {reviewBusyId === String(review.id) ? "Publicando…" : "Aprobar y publicar"}
                         </button>
                       )}
-                      <button className="delete-btn" onClick={() => deleteReview(review.id)}>
+                      <button className="delete-btn" disabled={reviewBusyId === String(review.id)} onClick={() => deleteReview(review.id)}>
                         Eliminar
                       </button>
                     </div>
@@ -6314,43 +6310,17 @@ export default function App() {
         </div>
       )}
 
-      <nav className="bottom-nav">
-        <button
-          className={currentView === "home" ? "active" : ""}
-          onClick={openHomeView}
-        >
-          <span>🏠</span>
-          Inicio
-        </button>
-        <button onClick={() => setShowCategorySheet(true)}>
-          <span>▦</span>
-          Categorías
-        </button>
-        <button
-          className={currentView === "novedades" ? "active" : ""}
-          onClick={openNewArrivalsView}
-        >
-          <span>✨</span>
-          Novedades
-        </button>
-        <button
-          className={currentView === "favoritos" ? "active" : ""}
-          onClick={openFavoritesView}
-        >
-          <span>♡</span>
-          Favoritos
-          {favorites.length > 0 && <em>{favorites.length}</em>}
-        </button>
-        <button onClick={scrollToCart}>
-          <span>🛒</span>
-          Carrito
-          {cart.length > 0 && <em>{cart.length}</em>}
-        </button>
-      </nav>
+      {["home", "collections", "reviews", "contact", "policies"].includes(currentView) && (
+        <BoutiqueFooter
+          onCommunity={() => setShowCommunity(true)}
+          onCollections={() => { setCurrentView("collections"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+          onReviews={() => { setCurrentView("reviews"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+          onContact={() => { setCurrentView("contact"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+          onPolicies={() => { setCurrentView("policies"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+          onInstall={handleInstallAppClick}
+        />
+      )}
 
-      <footer className="footer">
-        <span>✨ Aquí empieza tu camino para emprender</span>
-      </footer>
     </div>
   );
 }

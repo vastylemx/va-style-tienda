@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
-import logo from "./assets/5EBEC563-AD5B-47FB-AFE9-482289C13B90.jpg";
+import { isCommunityVideo, resolveCommunityMediaUrl } from "./communityMedia";
+import { openAssignedWhatsApp } from "./whatsapp";
 
 const DEVICE_ID_STORAGE_KEY = "vaStyleCommunityDeviceId";
-const COMMUNITY_MEDIA_BUCKET = "community-media";
 const COMMUNITY_POST_FIELDS =
   "id, media_url, media_type, text, advisor_line, likes_count, whatsapp_clicks, views_count, active, is_pinned, created_at";
 const COMMUNITY_POST_FIELDS_FALLBACK =
   "id, media_url, media_type, text, advisor_line, likes_count, whatsapp_clicks, views_count, active, created_at";
-const WHATSAPP_MESSAGE =
-  "Hola, vi una publicación en Comunidad V&A Style y me gustaría recibir más información.";
 
 const trackGA4 = (eventName, params = {}) => {
   if (typeof window !== "undefined" && typeof window.gtag === "function") {
@@ -38,24 +36,6 @@ function getDeviceId() {
   } catch {
     return createDeviceId();
   }
-}
-
-function getMediaUrl(mediaUrl) {
-  if (!mediaUrl) return "";
-  if (/^(https?:|blob:|data:)/i.test(mediaUrl)) return mediaUrl;
-
-  const storagePath = String(mediaUrl)
-    .replace(/^\/+/, "")
-    .replace(new RegExp(`^${COMMUNITY_MEDIA_BUCKET}/`), "");
-
-  return supabase.storage.from(COMMUNITY_MEDIA_BUCKET).getPublicUrl(storagePath).data.publicUrl;
-}
-
-function isVideoPost(post) {
-  const mediaType = String(post.media_type || "").toLowerCase();
-  if (mediaType.startsWith("video") || mediaType === "video") return true;
-
-  return /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(post.media_url || "");
 }
 
 function isMissingPinnedColumn(error) {
@@ -105,17 +85,6 @@ function formatRelativeDate(value, now) {
 
   const elapsedYears = Math.floor(elapsedDays / 365);
   return `Hace ${elapsedYears} año${elapsedYears === 1 ? "" : "s"}`;
-}
-
-function getAdvisorWhatsapp(advisorLine) {
-  const advisorNumbers = {
-    1: "524821357950",
-    2: "524791438636",
-    3: "524779177633",
-  };
-
-  const normalizedLine = String(advisorLine || "1").match(/[123]/)?.[0] || "1";
-  return advisorNumbers[normalizedLine];
 }
 
 async function trackPostView(postId) {
@@ -187,7 +156,8 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
   const playedVideoPostIdsRef = useRef(new Set());
   const completedVideoPostIdsRef = useRef(new Set());
   const communityViewTrackedRef = useRef(false);
-  const videoPostKeys = posts.filter(isVideoPost).map((post) => String(post.id)).join("|");
+  const whatsappAssignmentRef = useRef(new Set());
+  const videoPostKeys = posts.filter(isCommunityVideo).map((post) => String(post.id)).join("|");
   const communityPostKeys = posts.map((post) => String(post.id)).join("|");
 
   const loadFeed = useCallback(async () => {
@@ -494,20 +464,22 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
     });
   }
 
-  function openWhatsapp(post) {
-    trackGA4("community_whatsapp_click", {
-      post_id: post.id,
-      advisor_line: post.whatsapp_line || post.advisor_line || "unknown",
-    });
-
-    const advisorWhatsapp = getAdvisorWhatsapp(post.advisor_line);
-    const encodedMessage = encodeURIComponent(WHATSAPP_MESSAGE);
-    const whatsappUrl = advisorWhatsapp
-      ? `https://wa.me/${advisorWhatsapp}?text=${encodedMessage}`
-      : `https://wa.me/?text=${encodedMessage}`;
-
-    void trackWhatsappClick(post.id);
-    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  async function openWhatsapp(post) {
+    const postKey = String(post.id);
+    if (whatsappAssignmentRef.current.has(postKey)) return;
+    whatsappAssignmentRef.current.add(postKey);
+    try {
+      const assignment = await openAssignedWhatsApp();
+      trackGA4("community_whatsapp_click", {
+        post_id: post.id,
+        advisor_line: assignment.advisorLine || "fallback",
+        source: "app",
+        screen: "community",
+      });
+      void trackWhatsappClick(post.id);
+    } finally {
+      whatsappAssignmentRef.current.delete(postKey);
+    }
   }
 
   function handleMediaLoaded(postId) {
@@ -979,11 +951,133 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
           .community-post__whatsapp { transition: transform .18s ease, box-shadow .18s ease; }
           .community-post__whatsapp:hover { transform: translateY(-1px); box-shadow: 0 9px 20px rgba(37, 211, 102, .27); }
         }
+        /* Premium V & A visual layer. Feed behavior and analytics remain unchanged. */
+        .community-feed {
+          max-width: 1180px;
+          padding: 0 clamp(16px, 4vw, 52px) 110px;
+          background: #faf8f5;
+          color: #171717;
+        }
+        .community-feed__header {
+          grid-template-columns: 44px minmax(0, 1fr) 44px;
+          width: calc(100% + clamp(32px, 8vw, 104px));
+          min-height: 68px;
+          margin: 0 calc(clamp(16px, 4vw, 52px) * -1);
+          padding-inline: clamp(16px, 4vw, 52px);
+          background: rgba(250,248,245,.96);
+          border-color: #e9e4df;
+          box-shadow: none;
+        }
+        .community-feed__back {
+          width: 44px;
+          height: 44px;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: #171717;
+          font-size: 20px;
+        }
+        .community-feed__header h1 {
+          color: #171717;
+          font: 400 17px/1 Georgia, serif;
+          letter-spacing: .13em;
+        }
+        .community-feed__notifications {
+          width: 44px;
+          height: 44px;
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          color: #171717;
+        }
+        .community-feed__notification-badge {
+          top: 2px;
+          right: 0;
+          border-color: #faf8f5;
+          background: #171717;
+        }
+        .community-feed__intro { padding: clamp(55px,8vw,90px) 10px 42px }
+        .community-feed__eyebrow { color: #b59a6a; font: 600 10px Arial; letter-spacing: .28em }
+        .community-feed__intro:before {
+          content: "Comunidad";
+          display: block;
+          margin: 12px 0 15px;
+          color: #171717;
+          font: 400 clamp(42px,7vw,68px)/1 Georgia,serif;
+          letter-spacing: -.025em;
+        }
+        .community-feed__intro p { color: #6e6a66; font: 14px/1.6 Arial }
+        .community-feed__list {
+          display: flex;
+          flex-direction: column;
+          width: 100%;
+          max-width: 760px;
+          margin-inline: auto;
+          gap: 46px;
+        }
+        .community-post {
+          width: 100%;
+          align-self: start;
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          box-shadow: none;
+        }
+        .community-post__media-wrap,.community-post__media-wrap.is-video { background:#eee9e4 }
+        .community-post__body { padding: 18px 2px 0 }
+        .community-post__pinned-label {
+          padding: 0;
+          border-radius: 0;
+          background: transparent;
+          color: #b59a6a;
+          font: 600 9px Arial;
+          letter-spacing: .15em;
+        }
+        .community-post__like { color:#171717; font-weight:500 }
+        .community-post__like svg { width:25px; height:25px; color:#171717; filter:none }
+        .community-post__like.is-liked svg { color:#b59a6a }
+        .community-post__date { color:#898581; font:11px Arial }
+        .community-post__text { color:#2a2928; font:400 15px/1.65 Arial }
+        .community-post__whatsapp {
+          justify-content:flex-start;
+          width:auto;
+          min-height:44px;
+          padding:10px 0 7px;
+          border-bottom:1px solid #171717;
+          border-radius:0;
+          background:transparent;
+          color:#171717;
+          box-shadow:none;
+          font:600 10px Arial;
+          letter-spacing:.12em;
+        }
+        .community-post__whatsapp svg { width:18px; height:18px }
+        .community-feed__status,.community-feed__error-banner {
+          border-color:#e9e4df;
+          border-radius:0;
+          background:#fff;
+          color:#6e6a66;
+          box-shadow:none;
+        }
+        .community-feed__retry { border-radius:0; background:#171717; font:600 10px Arial; letter-spacing:.12em }
+        .community-feed__footer {
+          width:100%;
+          min-height:64px;
+          padding:8px max(18px,env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom));
+          background:rgba(250,248,245,.96);
+          border-color:#e9e4df;
+          box-shadow:none;
+        }
+        .community-feed__store-button { min-height:44px; color:#171717; font:600 10px Arial; letter-spacing:.12em }
+        @media(max-width:700px){
+          .community-feed__list{max-width:100%;gap:38px}
+          .community-feed__intro{padding-top:45px}
+        }
       `}</style>
 
       <header className="community-feed__header">
-        <img className="community-feed__logo" src={logo} alt="V&A Style" />
-        <h1 id="community-feed-title">Comunidad V&amp;A Style</h1>
+        <button className="community-feed__back" type="button" onClick={handleReturnToStore} aria-label="Volver al inicio">←</button>
+        <h1 id="community-feed-title">V &amp; A STYLE</h1>
         <button className="community-feed__notifications" type="button" aria-label="Notificaciones">
           <BellIcon />
           {notificationCount > 0 && (
@@ -1024,7 +1118,7 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
             const postKey = String(post.id);
             const isLiked = likedPostIds.has(postKey);
             const isPending = pendingPostIds.has(postKey);
-            const mediaUrl = getMediaUrl(post.media_url);
+            const mediaUrl = resolveCommunityMediaUrl(supabase, post.media_url);
 
             return (
               <article
@@ -1036,8 +1130,8 @@ export default function CommunityFeed({ onBackToStore, notificationCount = 1 }) 
                 data-community-post-id={postKey}
                 key={post.id}
               >
-                <div className={`community-post__media-wrap${isVideoPost(post) ? " is-video" : ""}`}>
-                  {isVideoPost(post) ? (
+                <div className={`community-post__media-wrap${isCommunityVideo(post) ? " is-video" : ""}`}>
+                  {isCommunityVideo(post) ? (
                     <>
                       <video
                         ref={(video) => {

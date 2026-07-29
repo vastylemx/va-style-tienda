@@ -1,0 +1,73 @@
+.whatsapp-advisor-cta {
+  min-height: 46px;
+  padding: 12px 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid #25d366;
+  border-radius: 4px;
+  background: #25d366;
+  color: #fff;
+  text-decoration: none;
+  font: 600 11px/1.2 Arial, sans-serif;
+  letter-spacing: .08em;
+  box-shadow: none;
+}
+
+.whatsapp-advisor-cta svg {
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.whatsapp-advisor-cta:focus-visible {
+  outline: 2px solid #171717;
+  outline-offset: 3px;
+}
+
+.whatsapp-advisor-cta--full {
+  width: 100%;
+}
+
+.whatsapp-advisor-cta--header {
+  min-height: 44px;
+  width: 46px;
+  padding: 3px 2px 2px;
+  flex-direction: column;
+  gap: 1px;
+  border: 0;
+  background: transparent;
+  color: #5b5754;
+  white-space: nowrap;
+  font: 500 10px/1 Arial, sans-serif;
+  letter-spacing: .02em;
+}
+
+.whatsapp-advisor-cta--header svg {
+  width: 22px;
+  height: 22px;
+  color: #25d366;
+}
+
+.whatsapp-advisor-cta--header span {
+  transform: translateY(-1px);
+}
+
+.whatsapp-advisor-cta--header:hover {
+  background: transparent;
+  color: #45413f;
+}
+
+.ve-footer a.whatsapp-advisor-cta,
+.information-view a.whatsapp-advisor-cta {
+  min-height: 46px;
+  padding: 12px 18px;
+  border: 1px solid #25d366;
+  background: #25d366;
+  color: #fff;
+  font: 600 11px/1.2 Arial, sans-serif;
+  letter-spacing: .08em;
+  text-align: center;
+}
