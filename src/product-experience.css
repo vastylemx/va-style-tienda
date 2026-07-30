@@ -53,9 +53,14 @@
   .product-essential-info { align-self:center; padding:80px 56px }
 }
 @media(max-width:600px){
-  .product-gallery>button { height:58svh; min-height:390px; max-height:600px }
-  .product-essential-info { padding:38px 20px 54px }
-  .product-variant-quick-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px 9px }
+  .product-gallery>button { height:clamp(300px,78vw,350px); min-height:0; max-height:none }
+  .product-gallery img { object-position:center top }
+  .product-gallery-dots { height:18px }
+  .product-essential-info { padding:22px 20px 46px }
+  .product-essential-info h1 { margin:7px 0 12px }
+  .product-variant-quick-section { margin-top:20px; padding:18px 0 22px }
+  .product-variant-quick-section h2 { margin-top:5px }
+  .product-variant-quick-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px 9px; margin-top:16px }
   .color-sheet { padding-inline:18px }
   .color-sheet__list article { grid-template-columns:78px minmax(0,1fr) 48px; gap:12px; min-height:108px }
   .color-sheet__image { width:78px; height:78px }

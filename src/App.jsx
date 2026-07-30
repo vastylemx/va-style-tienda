@@ -1,5 +1,5 @@
 import { publicSupabase, supabase } from "./supabase";
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import CommunityFeed from "./CommunityFeed";
 import CommunityAdmin from "./CommunityAdmin";
 import AdminLogin from "./AdminLogin";
@@ -436,6 +436,10 @@ function buildGroupedProducts(productList) {
   }));
 }
 
+function getDisplayedGroupVariant(group) {
+  return group.variants?.find((variant) => variant.image === group.image) || group.variants?.[0] || null;
+}
+
 function getCartSummary(cartItems) {
   const summary = new Map();
 
@@ -687,6 +691,7 @@ export default function App() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedProductGroup, setSelectedProductGroup] = useState(null);
   const [showVariantPanel, setShowVariantPanel] = useState(false);
+  const [expandedCatalogGroupId, setExpandedCatalogGroupId] = useState(null);
   const [addedVariantId, setAddedVariantId] = useState(null);
   const [, setVariantQuantities] = useState({});
   const [imageZoom, setImageZoom] = useState(1);
@@ -5277,8 +5282,13 @@ export default function App() {
           ) : (
             <>
               <div className="grid">
-                {paginatedProductGroups.map((group) => (
-                  <div className="card" key={group.id}>
+                {paginatedProductGroups.map((group) => {
+                  const displayedVariant = getDisplayedGroupVariant(group);
+                  const displayedQuantity = displayedVariant ? getVariantCartQuantity(displayedVariant) : 0;
+
+                  return (
+                  <Fragment key={group.id}>
+                  <div className="card">
                     {group.variants.length > 1 && (
                       <div className="variant-count">{group.variants.length} colores</div>
                     )}
@@ -5319,20 +5329,68 @@ export default function App() {
                         <div className="price">${formatMoney(group.price)} MXN</div>
                       )}
 
-                      <div className="catalog-variant-quick-add" aria-label={`Variantes de ${group.name}`}>
-                        {group.variants.slice(0, 4).map((variant) => renderVariantQuickAdd(variant, group))}
-                      </div>
-                      {group.variants.length > 4 && (
-                        <button className="catalog-variant-more" type="button" onClick={() => openProductGroup(group)}>
-                          +{group.variants.length - 4} colores
+                      <div className="catalog-card-actions">
+                        <button
+                          className="catalog-colors-link"
+                          type="button"
+                          onClick={() => setExpandedCatalogGroupId((current) => current === group.id ? null : group.id)}
+                          aria-expanded={expandedCatalogGroupId === group.id}
+                        >
+                          {group.variants.length} {group.variants.length === 1 ? "color" : "colores"}
+                          <span>{expandedCatalogGroupId === group.id ? "Ocultar colores" : "Ver colores"}</span>
                         </button>
-                      )}
-                      <button className="add" onClick={() => openProductGroup(group)}>
-                        Ver todos los colores
-                      </button>
+                        {displayedVariant && (
+                          displayedQuantity > 0 ? (
+                            <div className="catalog-default-quantity" aria-label={`${displayedQuantity} piezas de ${displayedVariant.variantColor || displayedVariant.name}`}>
+                              <button type="button" onClick={() => removeVariantDirectFromCart(displayedVariant)} aria-label="Quitar una pieza">−</button>
+                              <strong>{displayedQuantity}</strong>
+                              <button type="button" onClick={() => addVariantDirectToCart(displayedVariant, group)} aria-label="Agregar otra pieza">+</button>
+                            </div>
+                          ) : (
+                            <button
+                              className="catalog-default-add"
+                              type="button"
+                              onClick={() => addVariantDirectToCart(displayedVariant, group)}
+                              aria-label={`Agregar ${displayedVariant.variantColor || displayedVariant.name} al carrito`}
+                            >
+                              +
+                            </button>
+                          )
+                        )}
+                      </div>
                     </div>
                   </div>
-                ))}
+                  {expandedCatalogGroupId === group.id && (
+                    <section className="catalog-variant-expansion" aria-label={`Colores de ${group.name}`}>
+                      <div className="catalog-variant-expansion__heading">
+                        <span>COLORES DE {group.code}</span>
+                        <small>Desliza para explorar</small>
+                      </div>
+                      <div className={`catalog-variant-carousel${group.variants.length === 1 ? " is-single" : ""}`}>
+                        {group.variants.map((variant) => (
+                          <article className="catalog-variant-slide" key={variant.id}>
+                            <div className="catalog-variant-slide__media">
+                              <img src={variant.image} alt={variant.variantColor || variant.name} loading="lazy" decoding="async" />
+                            </div>
+                            <div className="catalog-variant-slide__footer">
+                              <span>{variant.variantColor || variant.name}</span>
+                              <button
+                                type="button"
+                                className={`catalog-variant-bag${addedVariantId === variant.id ? " is-added" : ""}`}
+                                onClick={() => addVariantDirectToCart(variant, group)}
+                                aria-label={`Agregar ${variant.variantColor || variant.name} al carrito`}
+                              >
+                                <AddToBagIcon added={addedVariantId === variant.id} />
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </div>
 
               {totalPages > 1 && (

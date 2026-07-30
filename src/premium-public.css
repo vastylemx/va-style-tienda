@@ -23,8 +23,28 @@
 .page .price,.page .sale-price { margin-top:10px; color:#171717; font:500 13px Arial; white-space:nowrap }
 .page .old-price { color:#898581; font:11px Arial }
 .page .card .add { width:auto; min-height:38px; margin-top:12px; padding:8px 0 5px; border:0; border-bottom:1px solid #171717; border-radius:0; background:transparent; color:#171717; box-shadow:none; font:600 9px Arial; letter-spacing:.13em }
-.page .catalog-variant-quick-add { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 8px; margin-top:16px }
-.page .catalog-variant-more { min-height:38px; margin-top:8px; padding:7px 0; border:0; background:transparent; color:#6e6a66; font:600 9px Arial; letter-spacing:.1em }
+.page .catalog-card-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:48px; margin-top:14px; padding-top:12px; border-top:1px solid #e9e4df }
+.page .catalog-colors-link { min-width:0; padding:2px 0; border:0; background:transparent; color:#171717; text-align:left; font:600 10px/1.25 Arial; letter-spacing:.04em }
+.page .catalog-colors-link span { display:block; margin-top:3px; color:#77716c; font:500 8px/1.2 Arial; letter-spacing:.09em; text-transform:uppercase }
+.page .catalog-default-add,.page .catalog-default-quantity button { flex:0 0 auto; width:42px; height:42px; display:grid; place-items:center; padding:0; border:1px solid #dcd5ce; border-radius:50%; background:#fff; color:#171717; font:400 21px/1 Arial }
+.page .catalog-default-quantity { flex:0 0 auto; display:grid; grid-template-columns:38px 22px 38px; align-items:center; justify-items:center }
+.page .catalog-default-quantity button { width:38px; height:38px; font-size:18px }
+.page .catalog-default-quantity strong { font:600 11px Arial }
+.page .catalog-variant-expansion { grid-column:1/-1; min-width:0; padding:18px 0 8px; border-block:1px solid #e9e4df }
+.page .catalog-variant-expansion__heading { display:flex; justify-content:space-between; align-items:center; gap:14px; margin-bottom:13px }
+.page .catalog-variant-expansion__heading span { color:#171717; font:600 9px Arial; letter-spacing:.15em }
+.page .catalog-variant-expansion__heading small { color:#77716c; font:9px Arial }
+.page .catalog-variant-carousel { width:100%; display:flex; gap:14px; padding:0 0 7px; overflow-x:auto; overscroll-behavior-x:contain; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none }
+.page .catalog-variant-carousel::-webkit-scrollbar { display:none }
+.page .catalog-variant-slide { flex:0 0 74%; min-width:0; scroll-snap-align:start; scroll-snap-stop:always }
+.page .catalog-variant-carousel.is-single .catalog-variant-slide { flex-basis:100% }
+.page .catalog-variant-slide__media { width:100%; aspect-ratio:4/5; overflow:hidden; background:#eee9e4; touch-action:pan-x pan-y }
+.page .catalog-variant-slide__media img { width:100%; height:100%; display:block; object-fit:cover; pointer-events:none; user-select:none }
+.page .catalog-variant-slide__footer { min-height:50px; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 2px 0 }
+.page .catalog-variant-slide__footer>span { min-width:0; overflow:hidden; color:#6e6a66; font:500 9px/1.3 Arial; letter-spacing:.06em; text-overflow:ellipsis; white-space:nowrap }
+.page .catalog-variant-bag { flex:0 0 auto; width:42px; height:42px; display:grid; place-items:center; padding:3px; border:0; background:transparent; color:#171717 }
+.page .catalog-variant-bag .product-bag-icon { width:31px; height:31px }
+.page .catalog-variant-bag.is-added { transform:scale(.9) }
 .variant-quick-add { min-width:0; display:flex; flex-direction:column; align-items:center; gap:5px }
 .variant-quick-add__image { width:100%; aspect-ratio:1; padding:0; overflow:hidden; border:1px solid #e9e4df; background:#eeeae5 }
 .page .variant-quick-add__image img { width:100%; height:100%; display:block; object-fit:cover }
@@ -72,9 +92,10 @@
   .page .card-body h3{min-height:2.8em;font-size:12px}
   .page .card-body{min-width:0}
   .page .price,.page .sale-price{font-size:12px}
-  .page .catalog-variant-quick-add{gap:9px 6px}
-  .variant-quick-add__quantity{grid-template-columns:36px minmax(18px,1fr) 36px}
-  .variant-quick-add__plus,.variant-quick-add__quantity button{width:36px;height:36px}
+  .page .catalog-card-actions{gap:6px}
+  .page .catalog-default-add{width:40px;height:40px}
+  .page .catalog-default-quantity{grid-template-columns:34px 18px 34px}
+  .page .catalog-default-quantity button{width:34px;height:34px}
   .page .card .add{min-height:44px}
   .page .floating-cart{right:12px;bottom:max(82px,calc(74px + env(safe-area-inset-bottom)));max-width:calc(100% - 24px)}
   .page .premium-cart-view .cart-item{display:block}
