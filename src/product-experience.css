@@ -15,6 +15,10 @@
 .product-essential-info>span { display:block; color:#6e6a66; font:600 9px Arial; letter-spacing:.2em; text-transform:uppercase }
 .product-essential-info h1 { margin:10px 0 22px; color:#171717; font:400 clamp(28px,5vw,42px)/1.1 Georgia,serif; letter-spacing:.02em }
 .product-essential-info>strong { display:block; color:#171717; font:700 clamp(22px,3vw,30px)/1.2 Arial; white-space:nowrap }
+.product-variant-quick-section { margin-top:34px; padding:24px 0; border-block:1px solid #e9e4df }
+.product-variant-quick-section>div:first-child>span { display:block; color:#b59a6a; font:600 8px Arial; letter-spacing:.2em }
+.product-variant-quick-section h2 { margin:7px 0 0; color:#171717; font:400 25px/1.15 Georgia,serif }
+.product-variant-quick-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px 12px; margin-top:22px }
 .product-essential-info>button { display:flex; align-items:center; gap:10px; min-height:44px; margin-top:34px; padding:10px 0 7px; border-bottom:1px solid #171717; background:transparent; color:#171717; font:600 10px Arial; letter-spacing:.13em }
 .product-essential-info>button b { font-size:16px }
 .product-essential-info>.whatsapp-advisor-cta { margin-top:24px }
@@ -51,6 +55,7 @@
 @media(max-width:600px){
   .product-gallery>button { height:58svh; min-height:390px; max-height:600px }
   .product-essential-info { padding:38px 20px 54px }
+  .product-variant-quick-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px 9px }
   .color-sheet { padding-inline:18px }
   .color-sheet__list article { grid-template-columns:78px minmax(0,1fr) 48px; gap:12px; min-height:108px }
   .color-sheet__image { width:78px; height:78px }

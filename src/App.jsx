@@ -544,6 +544,60 @@ function AddToBagIcon({ added = false }) {
   );
 }
 
+function VariantQuickAdd({
+  variant,
+  quantity,
+  selectedSize,
+  onSizeChange,
+  onPreview,
+  onIncrement,
+  onDecrement,
+}) {
+  const isFootwear = variant.category === "Calzado";
+  const sizeOptions = isFootwear ? getSizeOptions(variant.sizes) : [];
+  const variantLabel = variant.variantColor || variant.name;
+
+  return (
+    <article className="variant-quick-add">
+      <button
+        type="button"
+        className="variant-quick-add__image"
+        onClick={onPreview}
+        aria-label={`Ver ${variantLabel}`}
+      >
+        <img src={variant.image} alt={variantLabel} loading="lazy" decoding="async" />
+      </button>
+      <span title={variantLabel}>{variantLabel}</span>
+      {isFootwear && (
+        <select
+          value={selectedSize || ""}
+          onChange={(event) => onSizeChange(event.target.value)}
+          aria-label={`Talla para ${variantLabel}`}
+        >
+          <option value="">Talla</option>
+          {sizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+        </select>
+      )}
+      {quantity > 0 ? (
+        <div className="variant-quick-add__quantity" aria-label={`${quantity} piezas de ${variantLabel}`}>
+          <button type="button" onClick={onDecrement} aria-label={`Quitar una pieza de ${variantLabel}`}>−</button>
+          <strong>{quantity}</strong>
+          <button type="button" onClick={onIncrement} aria-label={`Agregar otra pieza de ${variantLabel}`}>+</button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="variant-quick-add__plus"
+          onClick={onIncrement}
+          aria-label={`Agregar ${variantLabel} al carrito`}
+        >
+          +
+        </button>
+      )}
+    </article>
+  );
+}
+
 export default function App() {
   const [showCommunity, setShowCommunity] = useState(TEST_COMMUNITY);
   const [products, setProducts] = useState([]);
@@ -1292,18 +1346,60 @@ export default function App() {
       shippingFactor: getItemShippingFactor(variant),
     };
 
+    const previousQuantity = cart.filter((item) =>
+      String(item.id) === String(variant.id)
+      && String(item.selectedSize || "") === String(selectedSize || "")
+    ).length;
     setCart((prevCart) => [...prevCart, itemToAdd]);
 
-    trackEvent("add_variant_direct_to_cart", {
-      item_id: variant.modelCode || group?.code || variant.name,
-      item_name: variant.name,
-      item_category: variant.category,
-      value: getFinalPrice(variant),
-      currency: "MXN",
-    });
+    if (previousQuantity === 0) {
+      trackEvent("add_variant_direct_to_cart", {
+        item_id: variant.modelCode || group?.code || variant.name,
+        item_name: variant.name,
+        item_category: variant.category,
+        value: getFinalPrice(variant),
+        currency: "MXN",
+      });
+    }
     setAddedVariantId(variant.id);
     if (addedVariantTimerRef.current) clearTimeout(addedVariantTimerRef.current);
     addedVariantTimerRef.current = window.setTimeout(() => setAddedVariantId(null), 900);
+  }
+
+  function removeVariantDirectFromCart(variant) {
+    const selectedSize = variant.category === "Calzado" ? selectedSizes[variant.id] : "";
+
+    setCart((currentCart) => {
+      const index = currentCart.findLastIndex((item) =>
+        String(item.id) === String(variant.id)
+        && String(item.selectedSize || "") === String(selectedSize || "")
+      );
+      if (index < 0) return currentCart;
+      return [...currentCart.slice(0, index), ...currentCart.slice(index + 1)];
+    });
+  }
+
+  function getVariantCartQuantity(variant) {
+    const selectedSize = variant.category === "Calzado" ? selectedSizes[variant.id] : "";
+    return cart.filter((item) =>
+      String(item.id) === String(variant.id)
+      && String(item.selectedSize || "") === String(selectedSize || "")
+    ).length;
+  }
+
+  function renderVariantQuickAdd(variant, group) {
+    return (
+      <VariantQuickAdd
+        key={variant.id}
+        variant={variant}
+        quantity={getVariantCartQuantity(variant)}
+        selectedSize={selectedSizes[variant.id] || ""}
+        onSizeChange={(size) => setSelectedSizes((current) => ({ ...current, [variant.id]: size }))}
+        onPreview={() => openImage(variant, group.variants)}
+        onIncrement={() => addVariantDirectToCart(variant, group)}
+        onDecrement={() => removeVariantDirectFromCart(variant)}
+      />
+    );
   }
 
   function openImage(product, gallery = []) {
@@ -2524,22 +2620,6 @@ export default function App() {
         block: "start",
       });
     }, 80);
-  }
-
-  function scrollToCart() {
-    const cartElement = cartRef.current;
-    if (!cartElement || typeof window === "undefined") return;
-
-    const rect = cartElement.getBoundingClientRect();
-    const targetTop = Math.max(
-      0,
-      window.scrollY + rect.top - (window.innerHeight - Math.min(rect.height, window.innerHeight * 0.82)) / 2
-    );
-
-    window.scrollTo({
-      top: targetTop,
-      behavior: "smooth",
-    });
   }
 
   function openLink(url) {
@@ -5239,8 +5319,16 @@ export default function App() {
                         <div className="price">${formatMoney(group.price)} MXN</div>
                       )}
 
+                      <div className="catalog-variant-quick-add" aria-label={`Variantes de ${group.name}`}>
+                        {group.variants.slice(0, 4).map((variant) => renderVariantQuickAdd(variant, group))}
+                      </div>
+                      {group.variants.length > 4 && (
+                        <button className="catalog-variant-more" type="button" onClick={() => openProductGroup(group)}>
+                          +{group.variants.length - 4} colores
+                        </button>
+                      )}
                       <button className="add" onClick={() => openProductGroup(group)}>
-                        Ver colores 🛍️
+                        Ver todos los colores
                       </button>
                     </div>
                   </div>
@@ -5539,12 +5627,17 @@ export default function App() {
         <InformationExperience type={currentView} onBack={openHomeView} />
       )}
 
-      {isCatalogView && cart.length > 0 && (
+      {(isCatalogView || selectedProductGroup) && cart.length > 0 && (
         <button
           className="floating-cart"
-          onClick={scrollToCart}
+          onClick={() => {
+            if (selectedProductGroup) closeProductGroup();
+            openCatalogCart();
+          }}
         >
-          🛒 {cart.length}
+          <span aria-hidden="true">🛍</span>
+          <strong>{cart.length} {cart.length === 1 ? "pieza" : "piezas"}</strong>
+          <small>Ver pedido →</small>
         </button>
       )}
 
@@ -5694,6 +5787,15 @@ export default function App() {
               {selectedProductGroup.brand && <span>{selectedProductGroup.brand}</span>}
               <h1>{selectedProductGroup.code}</h1>
               <strong>${formatMoney(getFinalPrice(selectedProductGroup))} MXN</strong>
+              <div className="product-variant-quick-section">
+                <div>
+                  <span>SELECCIONA</span>
+                  <h2>Colores disponibles</h2>
+                </div>
+                <div className="product-variant-quick-grid">
+                  {selectedProductGroup.variants.map((variant) => renderVariantQuickAdd(variant, selectedProductGroup))}
+                </div>
+              </div>
               <button type="button" onClick={() => setShowVariantPanel(true)}>🎨 Ver colores <b>→</b></button>
               <WhatsAppAdvisorLink screen="product" className="whatsapp-advisor-cta--full" />
               {selectedProductGroup.description && (
