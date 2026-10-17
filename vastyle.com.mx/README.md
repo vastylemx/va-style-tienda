@@ -21,11 +21,23 @@ El frontend consume la API del dominio cPanel; Vite proxy `/api` a `https://vast
 
 ## Publicación
 
-El destino es exclusivamente cPanel (`/home/vastyle/public_html`) mediante FTPS. Lee credenciales desde el `.env` local y protege temporales y respaldos. Nunca copies el `.env` al hosting público ni lo agregues a Git. No hagas push para publicar esta aplicación.
+El único procedimiento vigente es `scripts/publish_cpanel_release.mjs`. Desde `frontend/`, compila y simula primero:
 
-El script `scripts/publish_cpanel_release.mjs` incluye precondiciones explícitas sobre número de productos y rutas de imágenes. Esos valores pueden quedar desactualizados cuando cambia el catálogo; verifica que coincidan con datos actuales antes de usarlo. No lo ejecutes si falla una precondición ni reemplaces esas comprobaciones por valores inventados. `scripts/deploy_cpanel_release.mjs` contiene nombres de assets fijos de una publicación anterior y no debe considerarse un procedimiento vigente sin actualizar/verificar esos nombres. El procedimiento operativo seguro y sus comprobaciones deben mantenerse sincronizados con el release publicado.
+```sh
+npm ci
+npm run build
+npm run publish:plan
+```
 
-Antes de publicar: compila, valida PHP, revisa los cambios, confirma que el backend/API de cPanel funciona y respalda los archivos remotos que se reemplazarán. Activa el nuevo HTML solo después de verificar los assets y la API. No se ejecutan migraciones de datos ni cambios SQL como parte de una publicación normal.
+La simulación es local: enumera assets y código permitido, y las rutas que protege; no lee `.env`, no conecta ni escribe al servidor. Para una publicación autorizada y revisada:
+
+```sh
+npm run publish:cpanel
+```
+
+Este modo exige que los archivos gestionados ya existan y que la API/catalogo pasen preflight de solo lectura. Guarda respaldo local de cada archivo mutable, sube primero archivos a nombres de etapa, compara SHA-256 y los activa por rename atómico; `index.html` se activa al final. Los assets con hash se agregan únicamente si no existen; si hay colisión con contenido diferente, aborta. No contiene operaciones DELETE ni comandos SQL.
+
+No se publica `.htaccess`, configuración real, archivos de `media/`, logs ni `release/`. El archivo de compresión WASM debe existir en el servidor y se conserva intacto; si falta o no coincide su versión, el publicador aborta. Los datos MariaDB no se leen ni modifican. Las pruebas posteriores solo consultan el HTML, health y catálogo.
 
 ## Configuración y seguridad
 

@@ -28,9 +28,9 @@ Ejecuta pruebas HTTP contra la API cPanel para confirmar integraciones que depen
 
 ## Publicación
 
-La publicación de la aplicación actual se realiza al hosting cPanel mediante FTPS; no es un despliegue a Vercel. Las credenciales locales se leen desde `vastyle.com.mx/.env`, nunca se suben a Git. Revisa [`vastyle.com.mx/scripts/README.md`](vastyle.com.mx/scripts/README.md) y los invariantes del script antes de cada publicación; si sus supuestos no coinciden con el catálogo o release actual, detén la publicación y corrige/verifica el procedimiento antes de ejecutarlo. No publicar automáticamente al hacer push.
+La publicación de la aplicación actual se realiza al hosting cPanel mediante FTPS; no es un despliegue a Vercel. El publicador vigente valida antes y requiere `--apply` para escribir. Las credenciales locales se leen desde `vastyle.com.mx/.env`, nunca se suben a Git. El repositorio Git ya fue desconectado del proyecto histórico de Vercel, por lo que un push no activa allí builds automáticos. Consulta [`vastyle.com.mx/scripts/README.md`](vastyle.com.mx/scripts/README.md).
 
-`vercel.json` se conserva para la redirección del proyecto antiguo a `https://vastyle.com.mx/`. No cambiarla como parte de una publicación cPanel. Antes de hacer push, verificar en el panel de Vercel si el proyecto sigue conectado a Git y qué despliegues puede disparar.
+`vercel.json` se conserva para la redirección del proyecto antiguo a `https://vastyle.com.mx/`. La conexión Git del proyecto antiguo fue desconectada sin borrar el proyecto ni su dominio. No cambiarla como parte de una publicación cPanel ni reconectar el proyecto a Git.
 
 ## Configuración y datos
 

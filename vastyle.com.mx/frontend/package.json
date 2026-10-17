@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --config vite.config.js",
     "build": "vite build --config vite.config.js",
-    "preview": "vite preview --config vite.config.js"
+    "preview": "vite preview --config vite.config.js",
+    "publish:plan": "node ../scripts/publish_cpanel_release.mjs --dry-run",
+    "publish:cpanel": "node ../scripts/publish_cpanel_release.mjs --apply"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.10",

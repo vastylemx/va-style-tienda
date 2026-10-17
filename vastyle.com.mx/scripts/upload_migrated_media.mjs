@@ -1,3 +1,5 @@
+throw new Error("Herramienta histórica retirada del flujo operativo. No la ejecutes contra producción; el publicador vigente no transfiere ni reemplaza media.");
+
 import { createHash } from "node:crypto";
 import { readFile, writeFile, chmod, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";

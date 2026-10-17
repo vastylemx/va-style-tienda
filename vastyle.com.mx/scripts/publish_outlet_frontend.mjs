@@ -1,3 +1,5 @@
+throw new Error("Este publicador parcial está retirado. Usa ../scripts/publish_cpanel_release.mjs --dry-run y revisa el plan antes de una publicación explícita.");
+
 import { createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";

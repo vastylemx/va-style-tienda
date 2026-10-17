@@ -1,3 +1,5 @@
+throw new Error("Este publicador está retirado. Usa ../scripts/publish_cpanel_release.mjs --dry-run y revisa el plan antes de una publicación explícita.");
+
 import { createHash } from "node:crypto";
 import { readFile, writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
