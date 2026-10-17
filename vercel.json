@@ -1,4 +1,11 @@
 {
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "destination": "https://vastyle.com.mx/",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/admin/home-config",
