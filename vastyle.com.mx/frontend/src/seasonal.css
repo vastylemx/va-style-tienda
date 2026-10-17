@@ -1,0 +1,14 @@
+@media (hover:hover) and (pointer:fine) {
+  html.ve-snowflake-cursor :is(.page:not(:has(.admin-login-overlay,#admin-panel)),.community-feed),
+  html.ve-snowflake-cursor :is(.page:not(:has(.admin-login-overlay,#admin-panel)),.community-feed) * {
+    cursor:url("./assets/snowflake-cursor.png") 12 12,auto !important;
+  }
+
+  html.ve-snowflake-cursor :is(.page:not(:has(.admin-login-overlay,#admin-panel)),.community-feed) :is(a,button,[role="button"]) {
+    cursor:url("./assets/snowflake-cursor.png") 12 12,pointer !important;
+  }
+
+  html.ve-snowflake-cursor :is(.page:not(:has(.admin-login-overlay,#admin-panel)),.community-feed) :is(input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="tel"],input[type="number"],input[type="password"],input[type="url"],textarea,[contenteditable="true"],[role="textbox"]) {
+    cursor:text !important;
+  }
+}

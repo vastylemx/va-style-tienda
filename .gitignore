@@ -25,3 +25,6 @@ dist-ssr
 .vercel
 .env*
 !.env.example
+
+# Private audit artifact; never part of the application source.
+/VA_STYLE_AUDITORIA.zip

@@ -1,0 +1,148 @@
+.admin-modal.admin-model-modal {
+  width: min(720px, 100%);
+}
+
+.admin-model-search {
+  width: 100%;
+}
+
+.admin-model-count {
+  margin: 10px 0 4px;
+  color: #665d58;
+  font-size: 13px;
+}
+
+.admin-model-list {
+  border-top: 1px solid #e7dfd9;
+}
+
+.admin-model-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e7dfd9;
+}
+
+.admin-model-row > img {
+  width: 72px;
+  height: 88px;
+  object-fit: cover;
+}
+
+.admin-model-row__content,
+.admin-model-row__heading > div {
+  min-width: 0;
+}
+
+.admin-model-row__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-model-row__heading strong,
+.admin-model-row__heading span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.admin-model-row__heading strong {
+  font-size: 15px;
+}
+
+.admin-model-row__heading span {
+  margin-top: 4px;
+  color: #665d58;
+  font-size: 12px;
+}
+
+.admin-model-row button,
+.admin-model-pagination button {
+  flex: none;
+  min-height: 36px;
+  border: 1px solid #b74762;
+  border-radius: 4px;
+  background: #fff;
+  color: #8c2f48;
+  padding: 6px 10px;
+  font: 600 12px Arial, sans-serif;
+  cursor: pointer;
+}
+
+.admin-model-row button:hover,
+.admin-model-pagination button:hover:not(:disabled) {
+  background: #fff0f3;
+}
+
+.admin-model-variants {
+  margin-top: 12px;
+}
+
+.admin-model-variants summary {
+  width: fit-content;
+  color: #8c2f48;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-model-variants > div {
+  margin-top: 8px;
+}
+
+.admin-model-variant {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid #eee8e4;
+}
+
+.admin-model-variant img {
+  width: 36px;
+  height: 42px;
+  object-fit: cover;
+}
+
+.admin-model-variant span {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.admin-model-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 14px;
+  font-size: 12px;
+}
+
+.admin-model-pagination button:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.admin-model-empty {
+  padding: 20px 0;
+  color: #665d58;
+}
+
+@media (max-width: 520px) {
+  .admin-model-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .admin-model-row > img {
+    width: 56px;
+    height: 72px;
+  }
+
+  .admin-model-row__heading {
+    flex-wrap: wrap;
+  }
+}

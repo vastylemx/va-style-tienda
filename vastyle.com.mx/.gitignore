@@ -1,0 +1,24 @@
+/.env
+/.env.*
+!/.env.example
+/config/production.php
+
+/release/
+/tmp/
+/logs/
+**/*.log
+**/.DS_Store
+**/node_modules/
+**/vendor/
+**/backups/
+**/*.sql.gz
+**/*.dump
+**/*.sqlite
+**/*.sqlite3
+
+# Inactive copies of the former Supabase frontend, retained locally as reference.
+/frontend/src/App copy.jsx
+/frontend/src/supabase.js
+/frontend/src/assets/react.svg
+/frontend/src/assets/vite.svg
+/frontend/stubs/AdminUnavailable.jsx
